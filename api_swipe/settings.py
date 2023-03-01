@@ -3,7 +3,7 @@ from datetime import timedelta
 from pathlib import Path
 import environ
 
-from django.urls import reverse
+from django.urls import reverse_lazy
 
 env = environ.Env(
     DEBUG=(bool, True)
@@ -87,6 +87,11 @@ ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
 ACCOUNT_CONFIRM_EMAIL_ON_GET = True
 
 ACCOUNT_USER_MODEL_USERNAME_FIELD = 'email'
+
+ACCOUNT_EMAIL_CONFIRMATION_ANONYMOUS_REDIRECT_URL = 'confirmation_congratulations'
+ACCOUNT_EMAIL_CONFIRMATION_AUTHENTICATED_REDIRECT_URL = 'confirmation_congratulations'
+
+ACCOUNT_EMAIL_SUBJECT_PREFIX = 'APISwipe. '
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',

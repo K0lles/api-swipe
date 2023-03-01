@@ -20,5 +20,4 @@ class AuthRegistrationSerializer(ModelSerializer):
         return self.create(self.validated_data)
 
     def create(self, validated_data):
-        print('performing creation of user')
         return User.objects.create_user(**validated_data, role=Role.objects.get(role='user'))
