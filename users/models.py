@@ -15,7 +15,7 @@ class Role(models.Model):
         administrator = ('admin', 'Адміністратор')
         builder = ('builder', 'Забудовник')
 
-    role = models.CharField(max_length=55, choices=RoleChoice.choices)
+    role = models.CharField(max_length=55, choices=RoleChoice.choices, unique=True)
 
 
 class UserManager(BaseUserManager):
@@ -26,7 +26,7 @@ class UserManager(BaseUserManager):
         email = self.normalize_email(email)
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
-        user.is_active = True
+        user.is_active = True   # without activating further sending email confirmation is impossible
         user.save()
         return user
 
@@ -41,6 +41,7 @@ class User(AbstractBaseUser):
     role = models.ForeignKey(Role, on_delete=models.PROTECT)
     name = models.CharField(max_length=200)
     surname = models.CharField(max_length=200)
+    logo = models.ImageField(upload_to='users/logo/', blank=True, null=True)
     phone = PhoneNumberField(blank=True, null=True)
     email = models.EmailField(unique=True)
     password = models.CharField(max_length=500)

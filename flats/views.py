@@ -1,39 +1,49 @@
-from rest_framework.generics import ListCreateAPIView, DestroyAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.viewsets import ModelViewSet
 
-from drf_psq import Rule
-from drf_psq.decorator import psq
+from django.utils.translation import gettext_lazy as _
+
+from drf_psq import Rule, PsqMixin
 
 from .permissions import *
 from .serializers import *
 
 
-class ResidentialComplexAPIViewSet(ModelViewSet):
+class ResidentialComplexAPIViewSet(PsqMixin, ModelViewSet):
     serializer_class = ResidentialComplexSerializer
-
-    def create(self, request, *args, **kwargs):
-        print(request.data)
-        serializer: ModelSerializer = self.get_serializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            print(serializer.validated_data)
-            serializer.save()
-            return Response(data=request.data, status=status.HTTP_204_NO_CONTENT)
-        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    lookup_url_kwarg = 'residential_complex_pk'
 
     psq_rules = {
         ('create',): [
             Rule([IsBuilderPermission], ResidentialComplexSerializer)
         ],
         ('list', 'retrieve'): [
-            Rule([IsAuthenticated], ResidentialComplexSerializer)
+            Rule([CustomIsAuthenticated], ResidentialComplexSerializer)
         ],
         ('update', 'partial_update', 'destroy'): [
-            Rule([IsAdminPermission, IsAdminPermission, IsOwnerPermission])
+            Rule([IsAdminPermission, IsAdminPermission, IsOwnerPermission], ResidentialComplexSerializer)
         ]
     }
+
+    def get_queryset(self):
+        return ResidentialComplex.objects.filter(owner=self.request.user)
+
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            residential_complex: ResidentialComplex = ResidentialComplex.objects.get(pk=self.kwargs.get('residential_complex_pk'))
+        except ResidentialComplex.DoesNotExist:
+            return Response(data={'detail': _('Residential Complex does not exist')}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = self.get_serializer(instance=residential_complex)
+        return Response(data=serializer.data, status=status.HTTP_200_OK)
+
+    def create(self, request, *args, **kwargs):
+        serializer: ModelSerializer = self.get_serializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data=serializer.data, status=status.HTTP_204_NO_CONTENT)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class AdditionAPIViewSet(ModelViewSet):
@@ -50,17 +60,3 @@ class AdditionAPIViewSet(ModelViewSet):
         ('list',): [Rule([IsBuilderPermission])],
         ('create', 'destroy', 'update'): [Rule(IsAdminPermission, IsManagerPermission)]
     }
-
-
-class AdditionListCreateAPIView(ListCreateAPIView):
-    serializer_class = AdditionSerializer
-    queryset = Addition.objects.all()
-
-    def list(self, request, *args, **kwargs):
-        print(request.user)
-        return super().list(request, *args, **kwargs)
-
-
-class AdditionDestroyAPIView(DestroyAPIView):
-    lookup_url_kwarg = 'addition_pk'
-    queryset = Addition.objects.all()

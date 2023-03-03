@@ -30,22 +30,22 @@ class AdditionInComplexSerializer(ModelSerializer):
 
     class Meta:
         model = AdditionInComplex
-        fields = ['addition', 'turned_on']
+        fields = ['id', 'addition', 'turned_on']
 
 
 class ResidentialComplexSerializer(ModelSerializer):
-    photo = ImageField(required=False)
+    photo = ImageField()
     owner = AuthRegistrationSerializer(read_only=True)
     additions = AdditionInComplexSerializer(many=True, required=False)
-    gallery = PhotoSerializer(many=True, required=False)
+    gallery_photos = PhotoSerializer(many=True, required=False)
 
     class Meta:
         model = ResidentialComplex
-        fields = '__all__'
+        exclude = ['gallery']
 
     def create(self, validated_data: dict):
         additions = validated_data.pop('additions', None)
-        gallery = validated_data.pop('gallery', None)
+        gallery = validated_data.pop('gallery_photos', None)
         try:
             residential_complex = ResidentialComplex.objects.create(
                 owner=self.context.get('request').user,
@@ -72,3 +72,13 @@ class ResidentialComplexSerializer(ModelSerializer):
                 )
 
         return residential_complex
+
+    def to_representation(self, instance: ResidentialComplex):
+        data = super().to_representation(instance=instance)
+        data.update(
+            {
+                'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all(), many=True).data,
+                'additions': AdditionInComplexSerializer(instance=instance.additionincomplex_set.all(), many=True).data
+             }
+        )
+        return data

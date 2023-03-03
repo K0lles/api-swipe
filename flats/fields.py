@@ -15,7 +15,6 @@ class AdditionField(Field):
             raise ValidationError(detail=_('There is no such addition.'))
 
     def to_representation(self, value: Addition) -> dict:
-        print('returning representation')
         return {
             'id': value.id,
             'name': value.name,
