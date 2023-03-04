@@ -4,13 +4,14 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.viewsets import ModelViewSet
+from rest_framework.generics import ListCreateAPIView
+from rest_framework.viewsets import GenericViewSet
 from rest_framework.permissions import IsAuthenticated
 
 from drf_psq import PsqMixin, Rule
 
 from .models import User
-from .serializers import UserSerializer, UserAdminSerializer, UserUpdatingSerializer
+from .serializers import UserSerializer, UserAdminSerializer
 from flats.permissions import IsAdminPermission, IsManagerPermission
 
 
@@ -21,14 +22,16 @@ class ConfirmationCongratulationView(TemplateResponseMixin, View):
         return self.render_to_response({})
 
 
-class UserAPIViewSet(PsqMixin, ModelViewSet):
+class UserAPIViewSet(PsqMixin,
+                     ListCreateAPIView,
+                     GenericViewSet):
+
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminPermission]
 
     psq_rules = {
         ('list', 'add_to_blacklist'): [Rule([IsManagerPermission | IsAdminPermission], UserAdminSerializer)],
-        ('retrieve', 'delete_own_account'): [Rule([IsAuthenticated])],
-        'partial_update_self': [Rule([IsAuthenticated], UserUpdatingSerializer)],
+        ('retrieve_self', 'delete_own_account', 'partial_update_self'): [Rule([IsAuthenticated], UserSerializer)],
         'create': [Rule([IsAdminPermission], UserAdminSerializer)]
     }
 
@@ -39,8 +42,9 @@ class UserAPIViewSet(PsqMixin, ModelViewSet):
         serializer = self.get_serializer(instance=self.get_queryset(), many=True)
         return Response(data=serializer.data, status=status.HTTP_200_OK)
 
-    def retrieve(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=request.user)
+    @action(methods=['get'], detail=False, url_path='me', url_name='get-self')
+    def retrieve_self(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.request.user)
         return Response(data=serializer.data, status=status.HTTP_200_OK)
 
     def create(self, request, *args, **kwargs):
@@ -53,7 +57,6 @@ class UserAPIViewSet(PsqMixin, ModelViewSet):
     @action(methods=['PATCH'], detail=False, url_path='me/update', url_name='partial-update-user')
     def partial_update_self(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, instance=self.request.user, partial=True)
-        print(serializer.__class__)
         if serializer.is_valid():
             serializer.save()
             return Response(data=serializer.data, status=status.HTTP_200_OK)
