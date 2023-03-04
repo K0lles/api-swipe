@@ -1,7 +1,10 @@
 from allauth.account.models import EmailAddress
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
 from rest_framework.serializers import ModelSerializer
 from rest_framework.serializers import CharField
+
+from django.utils.translation import gettext_lazy as _
 
 from dj_rest_auth.serializers import LoginSerializer
 
@@ -34,6 +37,39 @@ class UserSerializer(ModelSerializer):
     class Meta:
         model = User
         exclude = ['role', 'is_active', 'is_blocked', 'last_login']
+
+
+class UserUpdatingSerializer(ModelSerializer):
+    password = CharField(write_only=True)
+    notifications = CharField()
+
+    class Meta:
+        model = User
+        exclude = ['role', 'is_blocked', 'last_login', 'is_active']
+
+    def validate_notifications(self, value: str):
+        if value not in ['me', 'me-agent', 'agent', 'disabled']:
+            raise ValidationError(_('Choose correct option.'))
+        return value
+
+    def validate_password(self, value: str):
+        if len(value) < 5:
+            raise ValidationError(_('Password is too simple.'))
+        return value
+
+    def update(self, instance: User, validated_data):
+        password = validated_data.pop('password', None)
+        for field in validated_data.keys():
+            # alter email in EmailAddress for rights to authenticate if email is changed
+            if field == 'email' and validated_data.get('email') != instance.email:
+                email_address = EmailAddress.objects.get(user=instance)
+                email_address.email = validated_data.get('email')
+                email_address.save()
+            setattr(instance, field, validated_data.get(field))
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
 
 
 class UserAdminSerializer(ModelSerializer):
