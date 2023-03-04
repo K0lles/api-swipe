@@ -4,8 +4,12 @@ from django.db import models
 from users.models import User
 
 
+class Gallery(models.Model):
+    pass
+
+
 class ResidentialComplex(models.Model):
-    owner = models.ForeignKey(User, on_delete=models.PROTECT)
+    owner = models.OneToOneField(User, on_delete=models.PROTECT)
     name = models.CharField(max_length=200)
     address = models.CharField(max_length=200)
     map_code = models.TextField()
@@ -19,7 +23,7 @@ class ResidentialComplex(models.Model):
         many_floors = ('many-floors', 'Багатоповерхівка')
         secondary_market = ('secondary-market', 'Вторинний ринок')
 
-    status = models.CharField(max_length=50, choices=Status.choices)
+    status = models.CharField(max_length=50, choices=Status.choices, default='flats')
     price_for_meter = models.FloatField(validators=[MinValueValidator(1.00)])
     min_price = models.FloatField(validators=[MinValueValidator(1.00)])
 
@@ -95,6 +99,7 @@ class ResidentialComplex(models.Model):
         part = ('part', 'Частинами')
 
     sum_in_contract = models.CharField(max_length=20, choices=ContractSumChoice.choices)
+    gallery = models.OneToOneField(Gallery, on_delete=models.PROTECT)
 
 
 class Document(models.Model):
@@ -132,10 +137,6 @@ class Floor(models.Model):
 class Corps(models.Model):
     residential_complex = models.ForeignKey(ResidentialComplex, on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
-
-
-class Gallery(models.Model):
-    pass
 
 
 class Photo(models.Model):
