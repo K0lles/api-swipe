@@ -1,5 +1,5 @@
 from allauth.account.models import EmailAddress
-from rest_framework import serializers
+from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.serializers import ModelSerializer
 from rest_framework.serializers import CharField
@@ -15,6 +15,12 @@ from users.models import User, Role
 class AuthLoginSerializer(LoginSerializer):
     username = None
     email = serializers.EmailField()
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if attrs.get('user') and attrs.get('user').is_blocked:
+            raise ValidationError({'detail': _('Вас заблоковано. Зв`яжіться із адміністратором.')}, code=status.HTTP_403_FORBIDDEN)
+        return attrs
 
 
 class AuthRegistrationSerializer(ModelSerializer):
@@ -41,12 +47,12 @@ class UserSerializer(ModelSerializer):
 
     def validate_notifications(self, value: str):
         if value not in ['me', 'me-agent', 'agent', 'disabled']:
-            raise ValidationError(_('Choose correct option.'))
+            raise ValidationError(_('Виберіть один із можливих варіант.'))
         return value
 
     def validate_password(self, value: str):
         if len(value) < 5:
-            raise ValidationError(_('Password is too simple.'))
+            raise ValidationError(_('Пароль занадто простий.'))
         return value
 
     def update(self, instance: User, validated_data):
@@ -66,7 +72,7 @@ class UserSerializer(ModelSerializer):
 
 class UserAdminSerializer(ModelSerializer):
     password = CharField(write_only=True, required=True)
-    role = RoleField(write_only=True)
+    role = RoleField()
 
     class Meta:
         model = User

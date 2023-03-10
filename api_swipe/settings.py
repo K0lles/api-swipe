@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'drf_psq',
     'phonenumber_field',
+    'rest_framework_swagger',
 
     'allauth',
     'allauth.account',
@@ -41,7 +42,9 @@ INSTALLED_APPS = [
 
     # apps
     'flats.apps.FlatsConfig',
-    'users.apps.UsersConfig'
+    'users.apps.UsersConfig',
+
+    'drf_spectacular',
 ]
 
 MIDDLEWARE = [
@@ -99,7 +102,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=90),
     "ROTATE_REFRESH_TOKENS": False,
     "BLACKLIST_AFTER_ROTATION": False,
@@ -160,7 +163,16 @@ REST_AUTH = {
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema'
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'APISwipe',
+    'DESCRIPTION': 'API endpoints for APISwipe',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
 }
 
 AUTH_PASSWORD_VALIDATORS = [

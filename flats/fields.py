@@ -11,7 +11,7 @@ class AdditionField(Field):
     def to_internal_value(self, data: int) -> Addition:
         try:
             return Addition.objects.get(pk=data)
-        except Addition.DoesNotExist:
+        except (Addition.DoesNotExist, TypeError):
             raise ValidationError(detail=_('There is no such addition.'))
 
     def to_representation(self, value: Addition) -> dict:
