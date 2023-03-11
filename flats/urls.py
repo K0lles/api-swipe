@@ -8,6 +8,8 @@ router.register(r'residential-complex', ResidentialComplexAPIViewSet, basename='
 router.register(r'additions', AdditionAPIViewSet, basename='additions')
 router.register(r'corps', CorpsAPIViewSet, basename='corps')
 router.register(r'documents', DocumentAPIViewSet, basename='documents')
+router.register(r'news', NewsAPIViewSet, basename='news')
+router.register(r'flats', FlatAPIViewSet, basename='flats')
 
 
 urlpatterns = [

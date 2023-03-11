@@ -110,6 +110,8 @@ class Document(models.Model):
 
 class News(models.Model):
     residential_complex = models.ForeignKey(ResidentialComplex, on_delete=models.CASCADE)
+    header = models.CharField(max_length=200)
+    body = models.TextField()
     date = models.DateTimeField(auto_now_add=True)
 
 

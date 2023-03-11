@@ -2,7 +2,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from django.utils.translation import gettext_lazy as _
 
-from flats.models import ResidentialComplex
+from flats.models import ResidentialComplex, Flat
 
 
 class CustomIsAuthenticated(IsAuthenticated):
@@ -44,5 +44,8 @@ class IsManagerPermission(BasePermission):
 class IsOwnerPermission(BasePermission):
     message = _('You do not have permission.')
 
-    def has_object_permission(self, request, view, obj: ResidentialComplex):
-        return request.user == obj.owner
+    def has_object_permission(self, request, view, obj):
+        if isinstance(obj, ResidentialComplex):
+            return request.user == obj.owner
+        elif isinstance(obj, Flat):
+            return request.user == obj.residential_complex.owner

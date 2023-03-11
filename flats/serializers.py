@@ -5,7 +5,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.fields import CharField, IntegerField
 from rest_framework.serializers import ModelSerializer, ImageField, PrimaryKeyRelatedField
 
-from .fields import AdditionField
+from .fields import AdditionField, ResidentialComplexDisplayField
 
 from .models import *
 from users.serializers import AuthRegistrationSerializer
@@ -45,10 +45,11 @@ class AdditionInComplexSerializer(ModelSerializer):
 
 class CorpsSerializer(ModelSerializer):
     name = CharField(read_only=True)
+    residential_complex = ResidentialComplexDisplayField(read_only=True)
 
     class Meta:
         model = Corps
-        exclude = ['residential_complex']
+        fields = '__all__'
 
 
 class DocumentSerializer(ModelSerializer):
@@ -60,13 +61,49 @@ class DocumentSerializer(ModelSerializer):
 
     def validate(self, attrs):
         if attrs.get('residential_complex', None) is None:
-            if self.context.get('residential_complex', None) is None:
+            if self.context.get('residential_complex', None) is None and not self.instance:
                 raise ValidationError({'residential_complex': [_('Не вказано ЖК.')]})
-            attrs['residential_complex'] = self.context.get('residential_complex')
+            if not self.instance:
+                attrs['residential_complex'] = self.context.get('residential_complex')
         return super().validate(attrs)
 
     def create(self, validated_data):
         instance = Document.objects.create(
+            **validated_data,
+        )
+        return instance
+
+    def update(self, instance, validated_data):
+        for field in validated_data:
+            setattr(instance, field, validated_data.get(field))
+        instance.save()
+        return instance
+
+
+class DocumentDisplaySerializer(ModelSerializer):
+
+    class Meta:
+        model = Document
+        exclude = ['residential_complex']
+
+
+class NewsSerializer(ModelSerializer):
+    residential_complex = PrimaryKeyRelatedField(queryset=ResidentialComplex.objects.all(), required=False)
+
+    class Meta:
+        model = News
+        fields = '__all__'
+
+    def validate(self, attrs):
+        if attrs.get('residential_complex', None) is None:
+            if self.context.get('residential_complex', None) is None and not self.instance:
+                raise ValidationError({'residential_complex': [_('Не вказано ЖК.')]})
+            if not self.instance:
+                attrs['residential_complex'] = self.context.get('residential_complex')
+        return super().validate(attrs)
+
+    def create(self, validated_data):
+        instance = News.objects.create(
             **validated_data,
         )
         return instance
@@ -83,6 +120,7 @@ class ResidentialComplexSerializer(ModelSerializer):
     owner = AuthRegistrationSerializer(read_only=True)
     additions = AdditionInComplexSerializer(many=True, required=False)
     gallery_photos = PhotoSerializer(many=True, required=False)
+    documents = DocumentDisplaySerializer(source='document_set', read_only=True, many=True)
 
     class Meta:
         model = ResidentialComplex
@@ -159,7 +197,27 @@ class ResidentialComplexSerializer(ModelSerializer):
         data.update(
             {
                 'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all(), many=True).data,
-                'additions': AdditionInComplexSerializer(instance=instance.additionincomplex_set.all(), many=True).data
+                'additions': AdditionInComplexSerializer(instance=instance.additionincomplex_set.all(), many=True).data,
              }
         )
         return data
+
+
+class FlatBuilderSerializer(ModelSerializer):
+
+    class Meta:
+        model = Flat
+        exclude = ['residential_complex']
+
+    def create(self, validated_data):
+        validated_data['residential_complex'] = self.context.get('residential_complex')
+        instance = Flat.objects.create(
+            **validated_data
+        )
+        return instance
+
+    def update(self, instance, validated_data):
+        for field in validated_data:
+            setattr(instance, field, validated_data.get(field))
+        instance.save()
+        return instance

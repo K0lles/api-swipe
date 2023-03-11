@@ -64,7 +64,6 @@ class UserAPIViewSet(PsqMixin,
             return Response(data=serializer.data, status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @extend_schema(tags=['update-yourself-account'])
     @action(methods=['PUT'], detail=False, url_path='me/update', url_name='partial-update-user')
     def partial_update_self(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, instance=self.request.user, partial=True)
@@ -73,7 +72,6 @@ class UserAPIViewSet(PsqMixin,
             return Response(data=serializer.data, status=status.HTTP_200_OK)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @extend_schema(tags=['delete-user'])
     def destroy(self, request, *args, **kwargs):
         user = self.get_object()
         try:
