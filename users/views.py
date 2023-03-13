@@ -6,15 +6,15 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.generics import ListCreateAPIView, DestroyAPIView
-from rest_framework.viewsets import GenericViewSet
+from rest_framework.viewsets import GenericViewSet, ModelViewSet
 from rest_framework.permissions import IsAuthenticated
 
 from drf_spectacular.utils import extend_schema
 
 from drf_psq import PsqMixin, Rule
 
-from .models import User
-from .serializers import UserSerializer, UserAdminSerializer
+from .models import User, Notary
+from .serializers import UserSerializer, UserAdminSerializer, NotarySerializer, NotaryUpdateSerializer
 from flats.permissions import IsAdminPermission, IsManagerPermission
 
 
@@ -111,3 +111,36 @@ class UserAPIViewSet(PsqMixin,
         except Exception as e:
             return Response(data={'detail': _('Щось пішло не так.')}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return response
+
+
+@extend_schema(tags=['Notaries'])
+class NotaryAPIViewSet(PsqMixin, ModelViewSet):
+    serializer_class = NotarySerializer
+    lookup_url_kwarg = 'notary_pk'
+
+    psq_rules = {
+        ('list', 'create', 'retrieve', 'destroy'):
+            [Rule([IsAdminPermission]), Rule([IsManagerPermission])],
+        ('update',):
+            [Rule([IsAdminPermission], NotaryUpdateSerializer), Rule([IsManagerPermission], NotaryUpdateSerializer)]
+    }
+
+    def get_queryset(self):
+        return Notary.objects.all()
+
+    def get_object(self, *args, **kwargs):
+        try:
+            return Notary.objects.get(pk=self.kwargs.get(self.lookup_url_kwarg))
+        except Notary.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаного нотаріуса не існує.')})
+
+    def update(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def partial_update(self, request, *args, **kwargs):
+        raise ValidationError({'detail': _('Метод PATCH не підтримується. Використовуйте метод PUT.')},
+                              code=status.HTTP_404_NOT_FOUND)

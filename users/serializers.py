@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from dj_rest_auth.serializers import LoginSerializer
 
 from users.fields import RoleField
-from users.models import User, Role
+from users.models import User, Role, Notary
 
 
 class AuthLoginSerializer(LoginSerializer):
@@ -87,3 +87,34 @@ class UserAdminSerializer(ModelSerializer):
             primary=True
         )
         return user
+
+
+class NotarySerializer(ModelSerializer):
+
+    class Meta:
+        model = Notary
+        fields = '__all__'
+
+    def create(self, validated_data):
+        instance = Notary.objects.create(
+            **validated_data
+        )
+        return instance
+
+
+class NotaryUpdateSerializer(ModelSerializer):
+
+    class Meta:
+        model = Notary
+        fields = '__all__'
+        extra_kwargs = {'email': {'required': False},
+                        'name': {'required': False},
+                        'surname': {'required': False},
+                        'phone': {'required': False}
+                        }
+
+    def update(self, instance, validated_data):
+        for field in validated_data:
+            setattr(instance, field, validated_data.get(field))
+        instance.save()
+        return instance

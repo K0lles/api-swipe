@@ -203,15 +203,35 @@ class ResidentialComplexSerializer(ModelSerializer):
         return data
 
 
+class SectionSerializer(ModelSerializer):
+    name = CharField(read_only=True)
+    residential_complex = ResidentialComplexDisplayField(read_only=True)
+
+    class Meta:
+        model = Section
+        fields = '__all__'
+
+
+class FloorSerializer(ModelSerializer):
+    name = CharField(read_only=True)
+    residential_complex = ResidentialComplexDisplayField(read_only=True)
+
+    class Meta:
+        model = Floor
+        fields = '__all__'
+
+
 class FlatBuilderSerializer(ModelSerializer):
+    gallery_photos = PhotoSerializer(source='gallery.photo_set', required=False, many=True)
 
     class Meta:
         model = Flat
-        exclude = ['residential_complex']
+        exclude = ['residential_complex', 'gallery']
 
     def create(self, validated_data):
         validated_data['residential_complex'] = self.context.get('residential_complex')
         instance = Flat.objects.create(
+            gallery=Gallery.objects.create(),
             **validated_data
         )
         return instance

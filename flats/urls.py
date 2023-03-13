@@ -10,6 +10,8 @@ router.register(r'corps', CorpsAPIViewSet, basename='corps')
 router.register(r'documents', DocumentAPIViewSet, basename='documents')
 router.register(r'news', NewsAPIViewSet, basename='news')
 router.register(r'flats', FlatAPIViewSet, basename='flats')
+router.register(r'sections', SectionAPIViewSet, basename='sections')
+router.register(r'floors', FloorAPIViewSet, basename='floors')
 
 
 urlpatterns = [
