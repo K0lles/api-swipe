@@ -1,3 +1,4 @@
+from django.db.models import Min, Max
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import Field
 
@@ -22,11 +23,34 @@ class AdditionField(Field):
         }
 
 
-class DisplayField(Field):
+class FlatSquarePriceField(Field):
+
+    def to_representation(self, value: ResidentialComplex):
+        queryset = value.flat_set.all()
+        flat_info = queryset \
+            .values('square', 'price') \
+            .aggregate(max_square=Max('square'),
+                       min_square=Min('square'),
+                       min_price=Min('price'))
+
+        return {
+            'maximal_square': flat_info.get('max_square', None),
+            'minimal_square': flat_info.get('min_square', None),
+            'minimal_price': flat_info.get('min_price', None)
+        }
 
     def to_internal_value(self, data):
-        """This method must be overwritten in successors"""
         pass
+
+
+class DisplayField(Field):
+    model = None
+
+    def to_internal_value(self, data):
+        try:
+            return self.model.objects.get(pk=data)
+        except self.model.DoesNotExist:
+            raise ValidationError({'detail': self.default_error_messages})
 
     def to_representation(self, value):
         return {
@@ -44,28 +68,16 @@ class ResidentialComplexDisplayField(DisplayField):
             raise ValidationError({'detail': _('Вказаного ЖК не існує.')})
 
 
-class SectionDisplayField(DisplayField):
-
-    def to_internal_value(self, data) -> Section:
-        try:
-            return Section.objects.get(pk=data)
-        except Section.DoesNotExist:
-            raise ValidationError({'detail': _('Вказаної секції не існує.')})
-
-
-class FloorDisplayField(DisplayField):
-
-    def to_internal_value(self, data) -> Floor:
-        try:
-            return Floor.objects.get(pk=data)
-        except Floor.DoesNotExist:
-            raise ValidationError({'detail': _('Вказаної секції не існує.')})
-
-
-class CorpsDisplayField(DisplayField):
-
-    def to_internal_value(self, data) -> Corps:
-        try:
-            return Corps.objects.get(pk=data)
-        except Corps.DoesNotExist:
-            raise ValidationError({'detail': _('Вказаної секції не існує.')})
+# class SectionDisplayField(DisplayField):
+#     model = Section
+#     default_error_messages = _('Вказаної секції не існує.')
+#
+#
+# class FloorDisplayField(DisplayField):
+#     model = Floor
+#     default_error_messages = _('Вказаного поверху не існує.')
+#
+#
+# class CorpsDisplayField(DisplayField):
+#     model = Corps
+#     default_error_messages = _('Вказаного корпусу не існує.')

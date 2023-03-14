@@ -139,6 +139,7 @@ class Floor(models.Model):
 class Corps(models.Model):
     residential_complex = models.ForeignKey(ResidentialComplex, on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class Photo(models.Model):
@@ -184,8 +185,8 @@ class ChessBoard(models.Model):
 
 class ChessBoardFlat(models.Model):
     residential_complex = models.ForeignKey(ResidentialComplex, on_delete=models.PROTECT)
-    flat = models.ForeignKey(Flat, on_delete=models.PROTECT)
-    chessboard = models.ForeignKey(ChessBoard, on_delete=models.PROTECT)
+    flat = models.ForeignKey(Flat, on_delete=models.PROTECT, blank=True, null=True)
+    chessboard = models.ForeignKey(ChessBoard, on_delete=models.PROTECT, blank=True, null=True)
     gallery = models.OneToOneField(Gallery, on_delete=models.PROTECT)
     accepted = models.BooleanField(default=False)
     address = models.TextField()
@@ -195,7 +196,7 @@ class ChessBoardFlat(models.Model):
 
     class PurposeChoice(models.TextChoices):
         apartments = ('apartments', 'Квартири')
-        # TODO: are these purposes are equal to purposes in ResidentialComplex model?
+        # TODO: are these purposes equal to purposes in ResidentialComplex model?
 
     purpose = models.CharField(max_length=20, choices=PurposeChoice.choices)
     room_amount = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
@@ -239,6 +240,7 @@ class ChessBoardFlat(models.Model):
     description = models.TextField()
     price = models.IntegerField(validators=[MinValueValidator(1)])
     main_photo = models.ImageField(upload_to='chessboard/main_photos/')
+    creator = models.ForeignKey(User, on_delete=models.CASCADE)
 
 
 class PromotionType(models.Model):

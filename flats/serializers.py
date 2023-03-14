@@ -5,7 +5,9 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.fields import CharField, IntegerField
 from rest_framework.serializers import ModelSerializer, ImageField, PrimaryKeyRelatedField
 
-from .fields import AdditionField, ResidentialComplexDisplayField
+from drf_extra_fields.fields import Base64ImageField
+
+from .fields import AdditionField, ResidentialComplexDisplayField, FlatSquarePriceField
 
 from .models import *
 from users.serializers import AuthRegistrationSerializer
@@ -49,6 +51,31 @@ class CorpsSerializer(ModelSerializer):
 
     class Meta:
         model = Corps
+        fields = '__all__'
+
+
+class CorpsInResidentialSerializer(ModelSerializer):
+
+    class Meta:
+        model = Corps
+        exclude = ['residential_complex']
+
+    def to_representation(self, instance: Corps):
+        data = super().to_representation(instance)
+        data.update(
+            {
+                'flat_amount': instance.flat_set.all().count()
+            }
+        )
+        return data
+
+
+class SectionSerializer(ModelSerializer):
+    name = CharField(read_only=True)
+    residential_complex = ResidentialComplexDisplayField(read_only=True)
+
+    class Meta:
+        model = Section
         fields = '__all__'
 
 
@@ -115,12 +142,29 @@ class NewsSerializer(ModelSerializer):
         return instance
 
 
+class NewsInResidentialSerializer(ModelSerializer):
+
+    class Meta:
+        model = News
+        exclude = ['residential_complex', 'body']
+
+
+class ResidentialComplexListSerializer(ModelSerializer):
+    flats_information = FlatSquarePriceField(source='*', read_only=True)
+
+    class Meta:
+        model = ResidentialComplex
+        fields = ['id', 'photo', 'name', 'address', 'flats_information']
+
+
 class ResidentialComplexSerializer(ModelSerializer):
-    photo = ImageField()
     owner = AuthRegistrationSerializer(read_only=True)
     additions = AdditionInComplexSerializer(many=True, required=False)
     gallery_photos = PhotoSerializer(many=True, required=False)
     documents = DocumentDisplaySerializer(source='document_set', read_only=True, many=True)
+    flats_information = FlatSquarePriceField(source='*', read_only=True)
+    corps = CorpsInResidentialSerializer(source='corps_set', read_only=True, many=True)
+    news = NewsInResidentialSerializer(source='news_set', read_only=True, many=True)
 
     class Meta:
         model = ResidentialComplex
@@ -168,27 +212,29 @@ class ResidentialComplexSerializer(ModelSerializer):
         remove_items_additions = {item.id: item for item in instance.additionincomplex_set.all()}
         remove_items_gallery = {item.id: item for item in instance.gallery.photo_set.all()}
 
-        for item in additions:
-            item_id = item.get('id', None)
+        if additions:
+            for item in additions:
+                item_id = item.get('id', None)
 
-            if not item_id:
-                AdditionInComplex.objects.create(
-                    residential_complex=instance,
-                    addition=item.get('addition'),
-                    turned_on=item.get('turned_on')
-                )
-            elif remove_items_additions.get(item_id, None) is not None:
-                item_instance = remove_items_additions.pop(item_id, None)
-                AdditionInComplex.objects.filter(id=item_instance.id).update(**item)
+                if not item_id:
+                    AdditionInComplex.objects.create(
+                        residential_complex=instance,
+                        addition=item.get('addition'),
+                        turned_on=item.get('turned_on')
+                    )
+                elif remove_items_additions.get(item_id, None) is not None:
+                    item_instance = remove_items_additions.pop(item_id, None)
+                    AdditionInComplex.objects.filter(id=item_instance.id).update(**item)
 
-        for item in gallery:
-            item_id = item.get('id', None)
+        if gallery:
+            for item in gallery:
+                item_id = item.get('id', None)
 
-            if not item_id:
-                Photo.objects.create(gallery=instance.gallery, **item)
-            elif remove_items_gallery.get(item_id, None) is not None:
-                item_instance = remove_items_gallery.pop(item_id, None)
-                Photo.objects.filter(id=item_instance.id).update(**item)
+                if not item_id:
+                    Photo.objects.create(gallery=instance.gallery, **item)
+                elif remove_items_gallery.get(item_id, None) is not None:
+                    item_instance = remove_items_gallery.pop(item_id, None)
+                    Photo.objects.filter(id=item_instance.id).update(**item)
 
         return instance
 
@@ -201,15 +247,6 @@ class ResidentialComplexSerializer(ModelSerializer):
              }
         )
         return data
-
-
-class SectionSerializer(ModelSerializer):
-    name = CharField(read_only=True)
-    residential_complex = ResidentialComplexDisplayField(read_only=True)
-
-    class Meta:
-        model = Section
-        fields = '__all__'
 
 
 class FloorSerializer(ModelSerializer):
@@ -241,3 +278,19 @@ class FlatBuilderSerializer(ModelSerializer):
             setattr(instance, field, validated_data.get(field))
         instance.save()
         return instance
+
+
+class PhotoBase64Serializer(ModelSerializer):
+    photo = Base64ImageField()
+
+    class Meta:
+        model = Photo
+        exclude = ['gallery']
+
+
+class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
+    gallery_photos = PhotoBase64Serializer(source='gallery.photo_set', required=False, many=True)
+
+    class Meta:
+        model = ChessBoardFlat
+        exclude = ['flat', 'chessboard', 'gallery', 'accepted', 'creator']
