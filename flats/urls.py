@@ -12,6 +12,7 @@ router.register(r'news', NewsAPIViewSet, basename='news')
 router.register(r'flats', FlatAPIViewSet, basename='flats')
 router.register(r'sections', SectionAPIViewSet, basename='sections')
 router.register(r'floors', FloorAPIViewSet, basename='floors')
+router.register(r'announcements', ChessBoardFlatAnnouncementAPIViewSet, basename='announcements')
 
 
 urlpatterns = [

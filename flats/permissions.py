@@ -49,3 +49,10 @@ class IsOwnerPermission(BasePermission):
             return request.user == obj.owner
         elif isinstance(obj, (Flat, Section, Floor, Corps)):
             return request.user == obj.residential_complex.owner
+
+
+class IsUserPermission(BasePermission):
+    message = _('You do not have permission.')
+
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role.role == 'user'

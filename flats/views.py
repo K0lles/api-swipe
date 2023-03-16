@@ -9,18 +9,18 @@ from rest_framework.generics import ListAPIView, \
     DestroyAPIView
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from django.utils.translation import gettext_lazy as _
 
 from drf_psq import Rule, PsqMixin
 
+from .paginators import CustomPageNumberPagination
 from .permissions import *
 from .serializers import *
 
 
-@extend_schema(tags=['Corps'])
-@extend_schema(methods=['PATCH'], exclude=True)
+@extend_schema(tags=['Corps'], description='Creation, deletion and updating corps')
 class CorpsAPIViewSet(PsqMixin,
                       ListCreateAPIView,
                       DestroyAPIView,
@@ -28,6 +28,8 @@ class CorpsAPIViewSet(PsqMixin,
 
     serializer_class = CorpsSerializer
     lookup_url_kwarg = 'corps_pk'
+    http_method_names = ['get', 'post', 'put', 'delete']
+    pagination_class = CustomPageNumberPagination
 
     psq_rules = {
         ('list', 'destroy'):
@@ -46,15 +48,32 @@ class CorpsAPIViewSet(PsqMixin,
         except Corps.DoesNotExist:
             raise ValidationError({'detail': _('Такого корпусу не існує.')})
 
-    def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=Corps.objects.select_related('residential_complex').all(), many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+    def get_queryset(self):
+        queryset = Corps.objects.select_related('residential_complex').all().order_by('name')
+        return self.paginate_queryset(queryset)
 
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.get_queryset(), many=True)
+        return self.get_paginated_response(data=serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='page_size', location=OpenApiParameter.QUERY,
+                             description='Size of the queryset that will be returned', required=False, type=int),
+            OpenApiParameter(name='page', location=OpenApiParameter.QUERY,
+                             description='Number of the page of the queryset that will be returned', required=False, type=int)
+        ]
+    )
     @action(methods=['GET'], detail=False, url_path='my')
     def corps(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=Corps.objects.select_related('residential_complex').filter(residential_complex__owner=self.request.user),
+        serializer = self.get_serializer(instance=
+                                         self.paginate_queryset(Corps.objects
+                                                                .select_related('residential_complex')
+                                                                .filter(residential_complex__owner=request.user)
+                                                                .order_by('name')
+                                                                ),
                                          many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
     def corps_create(self, request, *args, **kwargs):
@@ -65,9 +84,9 @@ class CorpsAPIViewSet(PsqMixin,
             name=f'Корпус {residential_complex.corps_set.all().count() + 1}',
             residential_complex=residential_complex
         )
-        serializer = self.get_serializer(instance=Corps.objects.filter(residential_complex=residential_complex),
+        serializer = self.get_serializer(instance=self.paginate_queryset(Corps.objects.filter(residential_complex=residential_complex)),
                                          many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['DELETE'], detail=True, url_path='my/delete')
     def corps_delete(self, request, *args, **kwargs):
@@ -98,13 +117,14 @@ class CorpsAPIViewSet(PsqMixin,
 
 
 @extend_schema(tags=['Residential Complexes'])
-@extend_schema(methods=['PATCH'], exclude=True)
 class ResidentialComplexAPIViewSet(PsqMixin,
                                    ListAPIView,
                                    GenericViewSet):
 
     serializer_class = ResidentialComplexSerializer
     lookup_url_kwarg = 'residential_complex_pk'
+    pagination_class = CustomPageNumberPagination
+    http_method_names = ['get', 'post', 'put', 'delete']
 
     psq_rules = {
         ('list',): [
@@ -144,7 +164,7 @@ class ResidentialComplexAPIViewSet(PsqMixin,
 
     def get_object(self, *args, **kwargs):
         try:
-            return ResidentialComplex.objects \
+            queryset = ResidentialComplex.objects \
                 .prefetch_related('flat_set',
                                   'floor_set',
                                   'corps_set',
@@ -156,6 +176,7 @@ class ResidentialComplexAPIViewSet(PsqMixin,
                                   'additionincomplex_set__addition') \
                 .select_related('owner') \
                 .get(pk=self.kwargs.get('residential_complex_pk'))
+            return self.paginate_queryset(queryset)
         except ResidentialComplex.DoesNotExist:
             raise ValidationError({'detail': _('Вказаного ЖК не існує.')})
 
@@ -223,21 +244,51 @@ class ResidentialComplexAPIViewSet(PsqMixin,
 
 
 @extend_schema(tags=['Additions'])
-@extend_schema(methods=['PATCH'], exclude=True)
 class AdditionAPIViewSet(PsqMixin, ModelViewSet):
     serializer_class = AdditionSerializer
-    queryset = Addition.objects.all()
     permission_classes = [IsBuilderPermission | IsAdminPermission | IsManagerPermission]
-    lookup_field = 'pk'
+    http_method_names = ['get', 'post', 'put', 'delete']
     lookup_url_kwarg = 'addition_pk'
+    pagination_class = CustomPageNumberPagination
 
     psq_rules = {
-        ('residential_additions_delete',): [Rule([IsBuilderPermission])],
+        ('residential_additions_list', 'residential_addition_delete'): [Rule([IsBuilderPermission], AdditionInComplexSerializer)],
         ('list', 'retrieve'): [Rule([IsBuilderPermission]), Rule([IsAdminPermission]), Rule([IsManagerPermission])],
+        ('residential_additions_all',): [Rule([IsAdminPermission], AdditionInComplexSerializer), Rule([IsManagerPermission], AdditionInComplexSerializer)],
         ('create', 'destroy', 'update'): [Rule([IsAdminPermission]), Rule([IsManagerPermission])]
     }
 
-    @action(methods=['DELETE'], detail=True)
+    def get_queryset(self):
+        queryset = Addition.objects.all()
+        return self.paginate_queryset(queryset)
+
+    def get_own_residential_additions_queryset(self):
+        queryset = AdditionInComplex.objects.filter(residential_complex__owner=self.request.user)
+        return self.paginate_queryset(queryset)
+
+    @action(methods=['GET'], detail=False, url_path='residential')
+    def residential_additions_all(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=AdditionInComplex.objects.all(),
+                                         many=True)
+        return self.get_paginated_response(data=serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='page_size', location=OpenApiParameter.QUERY,
+                             description='Size of the queryset that will be returned', required=False,
+                             type=int),
+            OpenApiParameter(name='page', location=OpenApiParameter.QUERY,
+                             description='Number of the page of the queryset that will be returned', required=False,
+                             type=int)
+        ]
+    )
+    @action(methods=['GET'], detail=False, url_path='my')
+    def residential_additions_list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.get_own_residential_additions_queryset(),
+                                         many=True)
+        return self.get_paginated_response(data=serializer.data)
+
+    @action(methods=['DELETE'], detail=True, url_path='my/delete')
     def residential_addition_delete(self, request, *args, **kwargs):
         try:
             addition_to_delete = AdditionInComplex.objects\
@@ -245,12 +296,13 @@ class AdditionAPIViewSet(PsqMixin, ModelViewSet):
                 .get(pk=self.kwargs.get('addition_pk'))
         except AdditionInComplex.DoesNotExist:
             return Response(data={'detail': _('У вашому ЖК не зареєстровано вказаний додаток.')}, status=status.HTTP_400_BAD_REQUEST)
+        if not IsOwnerPermission().has_object_permission(request, self, addition_to_delete):
+            raise ValidationError({'detail': _('Ви не маєте права видаляти вказаний додаток.')}, code=status.HTTP_403_FORBIDDEN)
         addition_to_delete.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema(tags=['Documents'])
-@extend_schema(methods=['PATCH'], exclude=True)
 class DocumentAPIViewSet(PsqMixin,
                          ListCreateAPIView,
                          RetrieveUpdateAPIView,
@@ -258,8 +310,9 @@ class DocumentAPIViewSet(PsqMixin,
                          GenericViewSet):
 
     serializer_class = DocumentSerializer
-    queryset = Document.objects.all()
+    http_method_names = ['get', 'post', 'put', 'delete']
     lookup_url_kwarg = 'document_pk'
+    pagination_class = CustomPageNumberPagination
 
     psq_rules = {
         ('create', 'update', 'destroy'):
@@ -267,6 +320,14 @@ class DocumentAPIViewSet(PsqMixin,
         ('list', 'retrieve'):
             [Rule([CustomIsAuthenticated])]
     }
+
+    def get_queryset(self):
+        queryset = Document.objects.all()
+        return self.paginate_queryset(queryset)
+
+    def get_own_documents_queryset(self):
+        queryset = Document.objects.filter(residential_complex__owner=self.request.user)
+        return self.paginate_queryset(queryset)
 
     def get_object(self):
         try:
@@ -290,7 +351,7 @@ class DocumentAPIViewSet(PsqMixin,
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
         serializer = self.get_serializer(instance=queryset, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return self.get_paginated_response(serializer.data)
 
     def create(self, request, *args, **kwargs):
         serializer: DocumentSerializer = self.get_serializer(data=request.data)
@@ -312,11 +373,19 @@ class DocumentAPIViewSet(PsqMixin,
         document_to_delete.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='page_size', location=OpenApiParameter.QUERY,
+                             description='Size of the queryset that will be returned', required=False, type=int),
+            OpenApiParameter(name='page', location=OpenApiParameter.QUERY,
+                             description='Number of the page of the queryset that will be returned', required=False,
+                             type=int)
+        ],
+    )
     @action(methods=['GET'], detail=False, url_path='my')
     def my_documents(self, request, *args, **kwargs):
-        documents = Document.objects.filter(residential_complex__owner=self.request.user)
-        serializer = self.get_serializer(instance=documents, many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        serializer = self.get_serializer(instance=self.get_own_documents_queryset(), many=True)
+        return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
     def my_documents_create(self, request, *args, **kwargs):
@@ -350,7 +419,6 @@ class DocumentAPIViewSet(PsqMixin,
 
 
 @extend_schema(tags=['News'])
-@extend_schema(methods=['PATCH'], exclude=True)
 class NewsAPIViewSet(PsqMixin,
                      ListCreateAPIView,
                      RetrieveUpdateAPIView,
@@ -358,7 +426,9 @@ class NewsAPIViewSet(PsqMixin,
                      GenericViewSet):
 
     serializer_class = NewsSerializer
+    http_method_names = ['get', 'post', 'put', 'delete']
     lookup_url_kwarg = 'news_pk'
+    pagination_class = CustomPageNumberPagination
 
     psq_rules = {
         ('create', 'update', 'destroy'):
@@ -370,11 +440,16 @@ class NewsAPIViewSet(PsqMixin,
     }
 
     def get_queryset(self):
-        return News.objects.all()
+        queryset = News.objects.all()
+        return self.paginate_queryset(queryset)
+
+    def get_own_news_queryset(self):
+        queryset = News.objects.filter(residential_complex__owner=self.request.user)
+        return self.paginate_queryset(queryset)
 
     def list(self, request, *args, **kwargs):
         serializer = self.get_serializer(instance=self.get_queryset(), many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return self.get_paginated_response(data=serializer.data)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -401,11 +476,19 @@ class NewsAPIViewSet(PsqMixin,
         obj.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='page_size', location=OpenApiParameter.QUERY,
+                             description='Size of the queryset that will be returned', required=False, type=int),
+            OpenApiParameter(name='page', location=OpenApiParameter.QUERY,
+                             description='Number of the page of the queryset that will be returned', required=False,
+                             type=int)
+        ]
+    )
     @action(methods=['GET'], detail=False, url_path='my')
     def my_news(self, request, *args, **kwargs):
-        news = News.objects.filter(residential_complex__owner=self.request.user)
-        serializer = self.get_serializer(instance=news, many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        serializer = self.get_serializer(instance=self.get_own_news_queryset(), many=True)
+        return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
     def my_news_create(self, request, *args, **kwargs):
@@ -439,7 +522,6 @@ class NewsAPIViewSet(PsqMixin,
 
 
 @extend_schema(tags=['Sections'])
-@extend_schema(methods=['PATCH'], exclude=True)
 class SectionAPIViewSet(PsqMixin,
                         ListAPIView,
                         RetrieveAPIView,
@@ -447,6 +529,8 @@ class SectionAPIViewSet(PsqMixin,
                         GenericViewSet):
     serializer_class = SectionSerializer
     lookup_url_kwarg = 'section_pk'
+    http_method_names = ['get', 'post', 'put', 'delete']
+    pagination_class = CustomPageNumberPagination
 
     psq_rules = {
         ('list', 'update', 'destroy'):
@@ -471,14 +555,16 @@ class SectionAPIViewSet(PsqMixin,
             raise ValidationError({'detail': _('Вказаної секції не існує.')})
 
     def get_queryset(self):
-        return Section.objects.all()
+        queryset = Section.objects.all()
+        return self.paginate_queryset(queryset)
 
     def get_own_sections_queryset(self):
-        return Section.objects.filter(residential_complex__owner=self.request.user)
+        queryset = Section.objects.filter(residential_complex__owner=self.request.user)
+        return self.paginate_queryset(queryset)
 
     def list(self, request, *args, **kwargs):
         serializer = self.get_serializer(instance=self.get_queryset(), many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return self.get_paginated_response(data=serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
         obj = self.get_object()
@@ -495,10 +581,19 @@ class SectionAPIViewSet(PsqMixin,
                 'detail': 'Ви не можете видалити секцію, оскільки до неї прив`язані квартири.'},
                             status=status.HTTP_409_CONFLICT)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='page_size', location=OpenApiParameter.QUERY,
+                             description='Size of the queryset that will be returned', required=False, type=int),
+            OpenApiParameter(name='page', location=OpenApiParameter.QUERY,
+                             description='Number of the page of the queryset that will be returned', required=False,
+                             type=int)
+        ]
+    )
     @action(methods=['GET'], detail=False, url_path='my')
     def sections_list(self, request, *args, **kwargs):
         serializer = self.get_serializer(instance=self.get_own_sections_queryset(), many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
     def sections_create(self, request, *args, **kwargs):
@@ -538,6 +633,7 @@ class FloorAPIViewSet(PsqMixin,
 
     serializer_class = FloorSerializer
     lookup_url_kwarg = 'floor_pk'
+    pagination_class = CustomPageNumberPagination
 
     psq_rules = {
         ('list', 'update', 'destroy'):
@@ -562,14 +658,16 @@ class FloorAPIViewSet(PsqMixin,
             raise ValidationError({'detail': _('Вказаного поверху не існує.')})
 
     def get_queryset(self):
-        return Floor.objects.all()
+        queryset = Floor.objects.all()
+        return self.paginate_queryset(queryset)
 
     def get_own_floors_queryset(self):
-        return Floor.objects.filter(residential_complex__owner=self.request.user)
+        queryset = Floor.objects.filter(residential_complex__owner=self.request.user)
+        return self.paginate_queryset(queryset)
 
     def list(self, request, *args, **kwargs):
         serializer = self.get_serializer(instance=self.get_queryset(), many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return self.get_paginated_response(data=serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
         obj = self.get_object()
@@ -586,10 +684,19 @@ class FloorAPIViewSet(PsqMixin,
                 'detail': 'Ви не можете видалити поверх, оскільки до нього прив`язані квартири.'},
                 status=status.HTTP_409_CONFLICT)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='page_size', location=OpenApiParameter.QUERY,
+                             description='Size of the queryset that will be returned', required=False, type=int),
+            OpenApiParameter(name='page', location=OpenApiParameter.QUERY,
+                             description='Number of the page of the queryset that will be returned', required=False,
+                             type=int)
+        ],
+    )
     @action(methods=['GET'], detail=False, url_path='my')
     def floors_list(self, request, *args, **kwargs):
         serializer = self.get_serializer(instance=self.get_own_floors_queryset(), many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
     def floors_create(self, request, *args, **kwargs):
@@ -622,7 +729,6 @@ class FloorAPIViewSet(PsqMixin,
 
 
 @extend_schema(tags=['Flats'])
-@extend_schema(methods=['PATCH'], exclude=True)
 class FlatAPIViewSet(PsqMixin,
                      ListCreateAPIView,
                      RetrieveUpdateAPIView,
@@ -630,7 +736,9 @@ class FlatAPIViewSet(PsqMixin,
                      GenericViewSet):
 
     serializer_class = FlatBuilderSerializer
+    http_method_names = ['get', 'post', 'put', 'delete']
     lookup_url_kwarg = 'flat_pk'
+    pagination_class = CustomPageNumberPagination
 
     psq_rules = {
         ('my_flats', 'my_flats_create', 'my_flats_update', 'my_flats_delete'):
@@ -654,11 +762,16 @@ class FlatAPIViewSet(PsqMixin,
             raise ValidationError({'detail': _('Такої квартири не існує.')})
 
     def get_queryset(self):
-        return Flat.objects.all()
+        queryset = Flat.objects.all()
+        return self.paginate_queryset(queryset)
+
+    def get_own_flats_queryset(self):
+        queryset = Flat.objects.filter(residential_complex__owner=self.request.user)
+        return self.paginate_queryset(queryset)
 
     def list(self, request, *args, **kwargs):
         serializer = self.get_serializer(instance=self.get_queryset(), many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return self.get_paginated_response(data=serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
         serializer = self.get_serializer(instance=self.get_object())
@@ -680,10 +793,19 @@ class FlatAPIViewSet(PsqMixin,
             return Response(data={'detail': _('Вказана квартира ймовірно знаходиться у шахматці. Видалення неможливе.')},
                             status=status.HTTP_409_CONFLICT)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='page_size', location=OpenApiParameter.QUERY,
+                             description='Size of the queryset that will be returned', required=False, type=int),
+            OpenApiParameter(name='page', location=OpenApiParameter.QUERY,
+                             description='Number of the page of the queryset that will be returned', required=False,
+                             type=int)
+        ],
+    )
     @action(methods=['GET'], detail=False, url_path='my')
     def my_flats(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=Flat.objects.filter(residential_complex__owner=request.user), many=True)
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
+        serializer = self.get_serializer(instance=self.get_own_flats_queryset(), many=True)
+        return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
     def my_flats_create(self, request, *args, **kwargs):
@@ -718,11 +840,35 @@ class FlatAPIViewSet(PsqMixin,
                             status=status.HTTP_409_CONFLICT)
 
 
+@extend_schema(tags=['Announcements'])
 class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
+                                           ListAPIView,
                                            GenericViewSet):
 
     serializer_class = ChessBoardFlatAnnouncementSerializer
+    http_method_names = ['get', 'post', 'put', 'delete']
     lookup_url_kwarg = 'announcement_pk'
 
     def get_queryset(self):
-        return ChessBoardFlat.objects.all()
+        queryset = ChessBoardFlat.objects.all()
+        return self.paginate_queryset(queryset)
+
+    def get_owner_queryset(self):
+        return ChessBoardFlat.objects.filter(residential_complex__owner=self.request.user)
+
+    psq_rules = {
+        ('list',): [
+            Rule([IsAdminPermission]), Rule([IsManagerPermission])
+        ],
+        ('create_announcement',): [
+            Rule([IsUserPermission])
+        ]
+    }
+
+    @action(methods=['POST'], detail=False, url_path='create')
+    def create_announcement(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data=serializer.data, status=status.HTTP_201_CREATED)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)

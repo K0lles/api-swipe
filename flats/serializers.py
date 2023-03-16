@@ -1,16 +1,47 @@
 from django.db import IntegrityError
+from django.db.models import Max, Min
 from django.utils.translation import gettext_lazy as _
 
 from rest_framework.exceptions import ValidationError
-from rest_framework.fields import CharField, IntegerField
-from rest_framework.serializers import ModelSerializer, ImageField, PrimaryKeyRelatedField
+from rest_framework.fields import CharField, IntegerField, BooleanField
+from rest_framework.serializers import ModelSerializer, ImageField, PrimaryKeyRelatedField, Serializer
 
 from drf_extra_fields.fields import Base64ImageField
 
-from .fields import AdditionField, ResidentialComplexDisplayField, FlatSquarePriceField
-
 from .models import *
 from users.serializers import AuthRegistrationSerializer
+
+
+class DisplaySerializer(Serializer):
+    model = None
+
+    def to_internal_value(self, data):
+        try:
+            return self.model.objects.get(pk=data)
+        except self.model.DoesNotExist:
+            raise ValidationError({'detail': self.default_error_messages})
+
+    def to_representation(self, value):
+        return {
+            'id': value.id,
+            'name': value.name
+        }
+    
+    def update(self, instance, validated_data):
+        pass
+
+    def create(self, validated_data):
+        pass
+
+
+class ResidentialComplexDisplaySerializer(DisplaySerializer):
+    model = ResidentialComplex
+
+    def to_internal_value(self, data: int) -> ResidentialComplex:
+        try:
+            return ResidentialComplex.objects.get(pk=data)
+        except ResidentialComplex.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаного ЖК не існує.')})
 
 
 class PhotoSerializer(ModelSerializer):
@@ -29,9 +60,28 @@ class AdditionSerializer(ModelSerializer):
         fields = '__all__'
 
 
+class FlatSquarePriceSerializer(Serializer):
+
+    def to_representation(self, value: ResidentialComplex):
+        queryset = value.flat_set.all()
+        flat_info = queryset \
+            .values('square', 'price') \
+            .aggregate(
+                max_square=Max('square'),
+                min_square=Min('square'),
+                min_price=Min('price')
+            )
+
+        return {
+            'maximal_square': flat_info.get('max_square', None),
+            'minimal_square': flat_info.get('min_square', None),
+            'minimal_price': flat_info.get('min_price', None)
+        }
+
+
 class AdditionInComplexSerializer(ModelSerializer):
     id = IntegerField(required=False, write_only=False)
-    addition = AdditionField(required=True)
+    addition = AdditionSerializer(required=True)
 
     class Meta:
         model = AdditionInComplex
@@ -47,7 +97,7 @@ class AdditionInComplexSerializer(ModelSerializer):
 
 class CorpsSerializer(ModelSerializer):
     name = CharField(read_only=True)
-    residential_complex = ResidentialComplexDisplayField(read_only=True)
+    residential_complex = ResidentialComplexDisplaySerializer(read_only=True)
 
     class Meta:
         model = Corps
@@ -72,7 +122,7 @@ class CorpsInResidentialSerializer(ModelSerializer):
 
 class SectionSerializer(ModelSerializer):
     name = CharField(read_only=True)
-    residential_complex = ResidentialComplexDisplayField(read_only=True)
+    residential_complex = ResidentialComplexDisplaySerializer(read_only=True)
 
     class Meta:
         model = Section
@@ -150,19 +200,18 @@ class NewsInResidentialSerializer(ModelSerializer):
 
 
 class ResidentialComplexListSerializer(ModelSerializer):
-    flats_information = FlatSquarePriceField(source='*', read_only=True)
+    flats_information = FlatSquarePriceSerializer(source='*', read_only=True)
 
     class Meta:
         model = ResidentialComplex
         fields = ['id', 'photo', 'name', 'address', 'flats_information']
-
 
 class ResidentialComplexSerializer(ModelSerializer):
     owner = AuthRegistrationSerializer(read_only=True)
     additions = AdditionInComplexSerializer(many=True, required=False)
     gallery_photos = PhotoSerializer(many=True, required=False)
     documents = DocumentDisplaySerializer(source='document_set', read_only=True, many=True)
-    flats_information = FlatSquarePriceField(source='*', read_only=True)
+    flats_information = FlatSquarePriceSerializer(source='*', read_only=True)
     corps = CorpsInResidentialSerializer(source='corps_set', read_only=True, many=True)
     news = NewsInResidentialSerializer(source='news_set', read_only=True, many=True)
 
@@ -251,7 +300,7 @@ class ResidentialComplexSerializer(ModelSerializer):
 
 class FloorSerializer(ModelSerializer):
     name = CharField(read_only=True)
-    residential_complex = ResidentialComplexDisplayField(read_only=True)
+    residential_complex = ResidentialComplexDisplaySerializer(read_only=True)
 
     class Meta:
         model = Floor
@@ -281,7 +330,7 @@ class FlatBuilderSerializer(ModelSerializer):
 
 
 class PhotoBase64Serializer(ModelSerializer):
-    photo = Base64ImageField()
+    photo = Base64ImageField(use_url=True)
 
     class Meta:
         model = Photo
@@ -289,8 +338,10 @@ class PhotoBase64Serializer(ModelSerializer):
 
 
 class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
+    creator = AuthRegistrationSerializer(read_only=True)
+    accepted = BooleanField(read_only=True)
     gallery_photos = PhotoBase64Serializer(source='gallery.photo_set', required=False, many=True)
 
     class Meta:
         model = ChessBoardFlat
-        exclude = ['flat', 'chessboard', 'gallery', 'accepted', 'creator']
+        exclude = ['flat', 'chessboard', 'gallery']
