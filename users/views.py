@@ -9,12 +9,14 @@ from rest_framework.generics import ListCreateAPIView, DestroyAPIView
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 from rest_framework.permissions import IsAuthenticated
 
+from dj_rest_auth.views import PasswordResetConfirmView
+
 from drf_spectacular.utils import extend_schema
 
 from drf_psq import PsqMixin, Rule
 
 from .models import User, Notary
-from .serializers import UserSerializer, UserAdminSerializer, NotarySerializer, NotaryUpdateSerializer
+from .serializers import UserSerializer, UserAdminSerializer, NotarySerializer, NotaryUpdateSerializer, AuthPasswordResetConfirmSerializer
 from flats.permissions import IsAdminPermission, IsManagerPermission
 
 
@@ -23,6 +25,18 @@ class ConfirmationCongratulationView(TemplateResponseMixin, View):
 
     def get(self, request, *args, **kwargs):
         return self.render_to_response({})
+
+
+class UserResetPasswordConfirmView(PasswordResetConfirmView):
+    serializer_class = AuthPasswordResetConfirmSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'uid': self.kwargs.get('uid'),
+                                                                     'token': self.kwargs.get('token')})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data={'detail': _('Пароль змінено успішно.')}, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class UserAPIViewSet(PsqMixin,

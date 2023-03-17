@@ -1,4 +1,5 @@
 from allauth.account.models import EmailAddress
+from django.utils.encoding import force_str
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.serializers import ModelSerializer
@@ -6,9 +7,10 @@ from rest_framework.serializers import CharField
 
 from django.utils.translation import gettext_lazy as _
 
-from dj_rest_auth.serializers import LoginSerializer
+from dj_rest_auth.serializers import LoginSerializer, PasswordResetConfirmSerializer, PasswordChangeSerializer
 
 from users.fields import RoleField
+from users.forms import CustomSetPasswordForm
 from users.models import User, Role, Notary
 
 
@@ -35,6 +37,40 @@ class AuthRegistrationSerializer(ModelSerializer):
 
     def create(self, validated_data):
         return User.objects.create_user(**validated_data, role=Role.objects.get(role='user'))
+
+
+class AuthPasswordChangeSerializer(PasswordChangeSerializer):
+    set_password_form_class = CustomSetPasswordForm
+
+
+class AuthPasswordResetConfirmSerializer(PasswordResetConfirmSerializer):
+    uid = None
+    token = None
+
+    set_password_form_class = CustomSetPasswordForm
+
+    def validate(self, attrs):
+        from allauth.account.forms import default_token_generator
+        from allauth.account.utils import url_str_to_user_pk as uid_decoder
+
+        try:
+            uid = force_str(uid_decoder(self.context['uid']))
+            self.user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise ValidationError({'uid': [_('Неправильне значення.')]})
+
+        if not default_token_generator.check_token(self.user, self.context['token']):
+            raise ValidationError({'token': [_('Неправильне значення')]})
+
+        self.custom_validation(attrs)
+        # Construct SetPasswordForm instance
+        self.set_password_form = self.set_password_form_class(
+            user=self.user, data=attrs,
+        )
+        if not self.set_password_form.is_valid():
+            raise serializers.ValidationError(self.set_password_form.errors)
+
+        return attrs
 
 
 class UserSerializer(ModelSerializer):

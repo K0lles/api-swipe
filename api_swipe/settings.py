@@ -5,6 +5,7 @@ import environ
 
 from django.urls import reverse_lazy
 
+
 env = environ.Env(
     DEBUG=(bool, True)
 )
@@ -159,6 +160,7 @@ REST_AUTH = {
     'SESSION_LOGIN': False,
     'LOGIN_SERIALIZER': 'users.serializers.AuthLoginSerializer',
     'REGISTER_SERIALIZER': 'users.serializers.AuthRegistrationSerializer',
+    'PASSWORD_CHANGE_SERIALIZER': 'users.serializers.AuthPasswordChangeSerializer',
     'USE_JWT': True,
     'JWT_AUTH_COOKIE': 'access_token',
     'JWT_AUTH_HTTPONLY': False,
