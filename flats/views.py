@@ -93,7 +93,6 @@ class CorpsAPIViewSet(PsqMixin,
         corps_to_delete = self.get_object()
         if corps_to_delete.residential_complex.owner != request.user:
             raise ValidationError({'detail': _('Ви можете видалити тільки корпус у власному ЖК.')}, code=status.HTTP_403_FORBIDDEN)
-
         try:
             corps_to_delete.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -252,10 +251,28 @@ class AdditionAPIViewSet(PsqMixin, ModelViewSet):
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
-        ('residential_additions_list', 'residential_addition_delete'): [Rule([IsBuilderPermission], AdditionInComplexSerializer)],
-        ('list', 'retrieve'): [Rule([IsBuilderPermission]), Rule([IsAdminPermission]), Rule([IsManagerPermission])],
-        ('residential_additions_all',): [Rule([IsAdminPermission], AdditionInComplexSerializer), Rule([IsManagerPermission], AdditionInComplexSerializer)],
-        ('create', 'destroy', 'update'): [Rule([IsAdminPermission]), Rule([IsManagerPermission])]
+        ('residential_additions_list',
+         'residential_additions_create',
+         'residential_addition_delete'): [
+            Rule([IsBuilderPermission], AdditionInComplexSerializer)
+        ],
+        ('residential_addition_update',): [
+            Rule([IsBuilderPermission], AdditionInComplexSerializer),
+            Rule([IsOwnerPermission], AdditionInComplexSerializer)
+        ],
+        ('list', 'retrieve'): [
+            Rule([IsBuilderPermission]),
+            Rule([IsAdminPermission]),
+            Rule([IsManagerPermission])
+        ],
+        ('residential_additions_all',): [
+            Rule([IsAdminPermission], AdditionInComplexSerializer),
+            Rule([IsManagerPermission], AdditionInComplexSerializer)
+        ],
+        ('create', 'destroy', 'update'): [
+            Rule([IsAdminPermission]),
+            Rule([IsManagerPermission])
+        ]
     }
 
     def get_queryset(self):
@@ -266,9 +283,21 @@ class AdditionAPIViewSet(PsqMixin, ModelViewSet):
         queryset = AdditionInComplex.objects.filter(residential_complex__owner=self.request.user)
         return self.paginate_queryset(queryset)
 
+    def get_my_residential_complex(self):
+        try:
+            return ResidentialComplex.objects.get(owner=self.request.user)
+        except ResidentialComplex.DoesNotExist:
+            raise ValidationError({'detail': _('На вас не зареєстрованого жодного ЖК.')})
+
+    def get_residential_object(self):
+        try:
+            return AdditionInComplex.objects.get(pk=self.kwargs.get('addition_pk'))
+        except AdditionInComplex.DoesNotExist:
+            raise ValidationError({'detail': _('Такого додатку не існує у вашому ЖК.')})
+
     @action(methods=['GET'], detail=False, url_path='residential')
     def residential_additions_all(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=AdditionInComplex.objects.all(),
+        serializer = self.get_serializer(instance=self.paginate_queryset(AdditionInComplex.objects.all()),
                                          many=True)
         return self.get_paginated_response(data=serializer.data)
 
@@ -287,6 +316,34 @@ class AdditionAPIViewSet(PsqMixin, ModelViewSet):
         serializer = self.get_serializer(instance=self.get_own_residential_additions_queryset(),
                                          many=True)
         return self.get_paginated_response(data=serializer.data)
+
+    @extend_schema(
+        request=AdditionInComplexSerializer(many=True),
+        responses={'201': None}
+    )
+    @action(methods=['POST'], detail=False, url_path='my/create')
+    def residential_additions_create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data,
+                                         context={'residential_complex': self.get_my_residential_complex()},
+                                         many=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(status=status.HTTP_201_CREATED)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        request=AdditionInComplexSerializer
+    )
+    @action(methods=['PUT'], detail=True, url_path='my/update')
+    def residential_addition_update(self, request, *args, **kwargs):
+        obj = self.get_residential_object()
+        serializer = self.get_serializer(data=request.data,
+                                         instance=obj,
+                                         partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(methods=['DELETE'], detail=True, url_path='my/delete')
     def residential_addition_delete(self, request, *args, **kwargs):
@@ -311,14 +368,18 @@ class DocumentAPIViewSet(PsqMixin,
 
     serializer_class = DocumentSerializer
     http_method_names = ['get', 'post', 'put', 'delete']
-    lookup_url_kwarg = 'document_pk'
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
         ('create', 'update', 'destroy'):
             [Rule([IsAdminPermission], DocumentSerializer), Rule([IsManagerPermission], DocumentSerializer)],
         ('list', 'retrieve'):
-            [Rule([CustomIsAuthenticated])]
+            [Rule([CustomIsAuthenticated])],
+        ('my_documents', 'my_documents_create'):
+            [Rule([IsBuilderPermission], DocumentSerializer)],
+        ('my_documents_update', 'my_documents_delete'):
+            [Rule([IsBuilderPermission]),
+             Rule([IsOwnerPermission])]
     }
 
     def get_queryset(self):
@@ -333,7 +394,7 @@ class DocumentAPIViewSet(PsqMixin,
         try:
             return Document.objects\
                 .select_related('residential_complex', 'residential_complex__owner')\
-                .get(pk=self.kwargs.get(self.lookup_url_kwarg))
+                .get(pk=self.kwargs.get(self.lookup_field))
         except Document.DoesNotExist:
             raise ValidationError({'detail': _('Вказаного документу не існує.')})
 
@@ -396,12 +457,9 @@ class DocumentAPIViewSet(PsqMixin,
             return Response(data=serializer.data, status=status.HTTP_200_OK)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['PUT'], detail=True, url_path='/my/update')
+    @action(methods=['PUT'], detail=True, url_path='my/update')
     def my_documents_update(self, request, *args, **kwargs):
         obj: Document = self.get_object()
-        if obj.residential_complex.owner != request.user:
-            raise ValidationError({'detail': _('У вас немає доступу для оновлення вказаного документу.')},
-                                  code=status.HTTP_403_FORBIDDEN)
         serializer = self.get_serializer(data=request.data, instance=obj, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -427,7 +485,6 @@ class NewsAPIViewSet(PsqMixin,
 
     serializer_class = NewsSerializer
     http_method_names = ['get', 'post', 'put', 'delete']
-    lookup_url_kwarg = 'news_pk'
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
@@ -499,7 +556,7 @@ class NewsAPIViewSet(PsqMixin,
             return Response(data=serializer.data, status=status.HTTP_200_OK)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['PUT'], detail=True, url_path='/my/update')
+    @action(methods=['PUT'], detail=True, url_path='my/update')
     def my_news_update(self, request, *args, **kwargs):
         obj: News = self.get_object()
         if obj.residential_complex.owner != request.user:
@@ -514,9 +571,6 @@ class NewsAPIViewSet(PsqMixin,
     @action(methods=['DELETE'], detail=True, url_path='my/delete')
     def my_news_delete(self, request, *args, **kwargs):
         obj: News = self.get_object()
-        if obj.residential_complex.owner != request.user:
-            raise ValidationError({'detail': _('У вас немає доступу для оновлення вказаної новини.')},
-                                  code=status.HTTP_403_FORBIDDEN)
         obj.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -528,7 +582,6 @@ class SectionAPIViewSet(PsqMixin,
                         DestroyAPIView,
                         GenericViewSet):
     serializer_class = SectionSerializer
-    lookup_url_kwarg = 'section_pk'
     http_method_names = ['get', 'post', 'put', 'delete']
     pagination_class = CustomPageNumberPagination
 
@@ -543,14 +596,7 @@ class SectionAPIViewSet(PsqMixin,
 
     def get_object(self, *args, **kwargs):
         try:
-            return Section.objects.get(pk=self.kwargs.get(self.lookup_url_kwarg))
-        except Section.DoesNotExist:
-            raise ValidationError({'detail': _('Вказаної секції не існує.')})
-
-    def get_own_sections_object(self):
-        try:
-            return Section.objects.get(pk=self.kwargs.get(self.lookup_url_kwarg),
-                                       residential_complex__owner=self.request.user)
+            return Section.objects.get(pk=self.kwargs.get(self.lookup_field))
         except Section.DoesNotExist:
             raise ValidationError({'detail': _('Вказаної секції не існує.')})
 
@@ -613,9 +659,7 @@ class SectionAPIViewSet(PsqMixin,
 
     @action(methods=['DELETE'], detail=True, url_path='my/delete')
     def sections_delete(self, request, *args, **kwargs):
-        obj_to_delete = self.get_own_sections_object()
-        if not IsOwnerPermission().has_object_permission(request, self, obj_to_delete):
-            raise ValidationError({'detail': IsOwnerPermission.message}, code=status.HTTP_403_FORBIDDEN)
+        obj_to_delete = self.get_object()
         try:
             obj_to_delete.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -632,7 +676,6 @@ class FloorAPIViewSet(PsqMixin,
                       GenericViewSet):
 
     serializer_class = FloorSerializer
-    lookup_url_kwarg = 'floor_pk'
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
@@ -646,13 +689,13 @@ class FloorAPIViewSet(PsqMixin,
 
     def get_object(self, *args, **kwargs):
         try:
-            return Floor.objects.get(pk=self.kwargs.get(self.lookup_url_kwarg))
+            return Floor.objects.get(pk=self.kwargs.get(self.lookup_field))
         except Floor.DoesNotExist:
             raise ValidationError({'detail': _('Вказаного поверху не існує.')})
 
     def get_own_floors_object(self):
         try:
-            return Floor.objects.get(pk=self.kwargs.get(self.lookup_url_kwarg),
+            return Floor.objects.get(pk=self.kwargs.get(self.lookup_field),
                                      residential_complex__owner=self.request.user)
         except Floor.DoesNotExist:
             raise ValidationError({'detail': _('Вказаного поверху не існує.')})
@@ -717,8 +760,6 @@ class FloorAPIViewSet(PsqMixin,
     @action(methods=['DELETE'], detail=True, url_path='my/delete')
     def floors_delete(self, request, *args, **kwargs):
         obj_to_delete = self.get_own_floors_object()
-        if not IsOwnerPermission().has_object_permission(request, self, obj_to_delete):
-            raise ValidationError({'detail': IsOwnerPermission.message}, code=status.HTTP_403_FORBIDDEN)
         try:
             obj_to_delete.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -737,7 +778,6 @@ class FlatAPIViewSet(PsqMixin,
 
     serializer_class = FlatBuilderSerializer
     http_method_names = ['get', 'post', 'put', 'delete']
-    lookup_url_kwarg = 'flat_pk'
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
@@ -757,7 +797,7 @@ class FlatAPIViewSet(PsqMixin,
 
     def get_object(self, *args, **kwargs):
         try:
-            return Flat.objects.get(pk=self.kwargs.get(self.lookup_url_kwarg))
+            return Flat.objects.get(pk=self.kwargs.get(self.lookup_field))
         except Flat.DoesNotExist:
             raise ValidationError({'detail': _('Такої квартири не існує.')})
 
@@ -843,32 +883,89 @@ class FlatAPIViewSet(PsqMixin,
 @extend_schema(tags=['Announcements'])
 class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
                                            ListAPIView,
+                                           RetrieveAPIView,
+                                           DestroyAPIView,
                                            GenericViewSet):
 
     serializer_class = ChessBoardFlatAnnouncementSerializer
     http_method_names = ['get', 'post', 'put', 'delete']
-    lookup_url_kwarg = 'announcement_pk'
-
-    def get_queryset(self):
-        queryset = ChessBoardFlat.objects.all()
-        return self.paginate_queryset(queryset)
-
-    def get_owner_queryset(self):
-        return ChessBoardFlat.objects.filter(residential_complex__owner=self.request.user)
 
     psq_rules = {
-        ('list',): [
-            Rule([IsAdminPermission]), Rule([IsManagerPermission])
+        ('list', 'destroy'): [
+            Rule([IsAdminPermission], ChessBoardFlatAnnouncementListSerializer),
+            Rule([IsManagerPermission], ChessBoardFlatAnnouncementListSerializer)
+        ],
+        ('retrieve',): [
+            Rule([IsUserPermission, IsOwnerPermission], ChessBoardFlatAnnouncementSerializer)
         ],
         ('create_announcement',): [
             Rule([IsUserPermission])
+        ],
+        ('list_own_announcements', 'update_own_announcement', 'destroy_own_announcement'): [
+            Rule([IsBuilderPermission], ChessBoardFlatAnnouncementSerializer)
         ]
     }
 
+    def get_queryset(self):
+        queryset = ChessBoardFlat.objects.select_related('residential_complex', 'creator').all().order_by('creator')
+        return self.paginate_queryset(queryset)
+
+    def get_object(self, *args, **kwargs):
+        try:
+            self.obj = ChessBoardFlat.objects \
+                .select_related('creator') \
+                .prefetch_related('gallery__photo_set')\
+                .get(pk=self.kwargs.get(self.lookup_field))
+            self.check_object_permissions(self.request, self.obj)
+            return self.obj
+        except ChessBoardFlat.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаної об`яви не існує.')})
+
+    def get_owner_queryset(self):
+        queryset = ChessBoardFlat.objects \
+            .prefetch_related('gallery__photo_set') \
+            .select_related('creator') \
+            .filter(residential_complex__owner=self.request.user)
+        return self.paginate_queryset(queryset)
+
+    def destroy_object(self, obj):
+        try:
+            obj.delete()
+        except ProtectedError:
+            raise ValidationError({'detail': _('Видалити об`яву не вдалося.')})
+
+    def retrieve(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.get_object())
+        return Response(data=serializer.data, status=status.HTTP_200_OK)
+
+    def destroy(self, request, *args, **kwargs):
+        obj = self.get_object()
+        self.destroy_object(obj)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=['GET'], detail=False, url_path='my')
+    def list_own_announcements(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.get_owner_queryset(), many=True)
+        return self.get_paginated_response(serializer.data)
+
     @action(methods=['POST'], detail=False, url_path='create')
     def create_announcement(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(data=request.data, context={'user': request.user})
         if serializer.is_valid():
             serializer.save()
             return Response(data=serializer.data, status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['PUT'], detail=True, url_path='my/update')
+    def update_own_announcement(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['DELETE'], detail=True, url_path='my/delete')
+    def destroy_own_announcement(self, request, *args, **kwargs):
+        obj = self.get_object()
+        self.destroy_object(obj)
+        return Response(status=status.HTTP_204_NO_CONTENT)

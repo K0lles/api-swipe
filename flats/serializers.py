@@ -4,7 +4,7 @@ from django.utils.translation import gettext_lazy as _
 
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import CharField, IntegerField, BooleanField
-from rest_framework.serializers import ModelSerializer, ImageField, PrimaryKeyRelatedField, Serializer
+from rest_framework.serializers import ModelSerializer, PrimaryKeyRelatedField, Serializer
 
 from drf_extra_fields.fields import Base64ImageField
 
@@ -46,11 +46,11 @@ class ResidentialComplexDisplaySerializer(DisplaySerializer):
 
 class PhotoSerializer(ModelSerializer):
     id = IntegerField(required=False, write_only=False)
-    photo = ImageField()
+    photo = Base64ImageField(use_url=True)
 
     class Meta:
         model = Photo
-        exclude = ['gallery']
+        exclude = ['gallery', 'sequence_number']
 
 
 class AdditionSerializer(ModelSerializer):
@@ -79,9 +79,23 @@ class FlatSquarePriceSerializer(Serializer):
         }
 
 
+class CustomAdditionSerializer(ModelSerializer):
+
+    class Meta:
+        model = Addition
+        fields = '__all__'
+
+    def to_internal_value(self, data):
+        try:
+            instance = Addition.objects.get(pk=data)
+        except Addition.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаного додатку немає.')})
+        return instance
+
+
 class AdditionInComplexSerializer(ModelSerializer):
     id = IntegerField(required=False, write_only=False)
-    addition = AdditionSerializer(required=True)
+    addition = CustomAdditionSerializer(required=True)
 
     class Meta:
         model = AdditionInComplex
@@ -206,21 +220,23 @@ class ResidentialComplexListSerializer(ModelSerializer):
         model = ResidentialComplex
         fields = ['id', 'photo', 'name', 'address', 'flats_information']
 
+
 class ResidentialComplexSerializer(ModelSerializer):
+    photo = Base64ImageField(use_url=True)
     owner = AuthRegistrationSerializer(read_only=True)
-    additions = AdditionInComplexSerializer(many=True, required=False)
+    # additions = AdditionInComplexSerializer(many=True, required=False)
     gallery_photos = PhotoSerializer(many=True, required=False)
-    documents = DocumentDisplaySerializer(source='document_set', read_only=True, many=True)
+    # documents = DocumentDisplaySerializer(source='document_set', read_only=True, many=True)
     flats_information = FlatSquarePriceSerializer(source='*', read_only=True)
-    corps = CorpsInResidentialSerializer(source='corps_set', read_only=True, many=True)
-    news = NewsInResidentialSerializer(source='news_set', read_only=True, many=True)
+    # corps = CorpsInResidentialSerializer(source='corps_set', read_only=True, many=True)
+    # news = NewsInResidentialSerializer(source='news_set', read_only=True, many=True)
 
     class Meta:
         model = ResidentialComplex
         exclude = ['gallery']
 
     def create(self, validated_data: dict):
-        additions = validated_data.pop('additions', None)
+        # additions = validated_data.pop('additions', None)
         gallery = validated_data.pop('gallery_photos', None)
         try:
             residential_complex = ResidentialComplex.objects.create(
@@ -229,28 +245,26 @@ class ResidentialComplexSerializer(ModelSerializer):
                 **validated_data
             )
         except IntegrityError:
-            raise ValidationError({"detail": _("You already have residential complex")})
+            raise ValidationError({"detail": _("На вас уже зареєстровано ЖК.")})
 
-        if additions:
-            for addition in additions:
-                AdditionInComplex.objects.create(
-                    residential_complex=residential_complex,
-                    addition=addition.get('addition'),
-                    turned_on=addition.get('turned_on')
-                )
-
+        # if additions:
+        #     for addition in additions:
+        #         AdditionInComplex.objects.create(
+        #             residential_complex=residential_complex,
+        #             addition=addition.get('addition'),
+        #             turned_on=addition.get('turned_on')
+        #         )
+        #
         if gallery:
             for photo in gallery:
                 Photo.objects.create(
                     photo=photo.get('photo'),
                     gallery=residential_complex.gallery,
-                    sequence_number=photo.get('sequence_number')
                 )
 
         return residential_complex
 
     def update(self, instance: ResidentialComplex, validated_data: dict):
-        additions = validated_data.pop('additions', None)
         gallery = validated_data.pop('gallery_photos', None)
 
         for key in validated_data.keys():
@@ -258,23 +272,23 @@ class ResidentialComplexSerializer(ModelSerializer):
 
         instance.save()
 
-        remove_items_additions = {item.id: item for item in instance.additionincomplex_set.all()}
+        # remove_items_additions = {item.id: item for item in instance.additionincomplex_set.all()}
         remove_items_gallery = {item.id: item for item in instance.gallery.photo_set.all()}
 
-        if additions:
-            for item in additions:
-                item_id = item.get('id', None)
-
-                if not item_id:
-                    AdditionInComplex.objects.create(
-                        residential_complex=instance,
-                        addition=item.get('addition'),
-                        turned_on=item.get('turned_on')
-                    )
-                elif remove_items_additions.get(item_id, None) is not None:
-                    item_instance = remove_items_additions.pop(item_id, None)
-                    AdditionInComplex.objects.filter(id=item_instance.id).update(**item)
-
+        # if additions:
+        #     for item in additions:
+        #         item_id = item.get('id', None)
+        #
+        #         if not item_id:
+        #             AdditionInComplex.objects.create(
+        #                 residential_complex=instance,
+        #                 addition=item.get('addition'),
+        #                 turned_on=item.get('turned_on')
+        #             )
+        #         elif remove_items_additions.get(item_id, None) is not None:
+        #             item_instance = remove_items_additions.pop(item_id, None)
+        #             AdditionInComplex.objects.filter(id=item_instance.id).update(**item)
+        #
         if gallery:
             for item in gallery:
                 item_id = item.get('id', None)
@@ -292,7 +306,6 @@ class ResidentialComplexSerializer(ModelSerializer):
         data.update(
             {
                 'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all(), many=True).data,
-                'additions': AdditionInComplexSerializer(instance=instance.additionincomplex_set.all(), many=True).data,
              }
         )
         return data
@@ -330,18 +343,90 @@ class FlatBuilderSerializer(ModelSerializer):
 
 
 class PhotoBase64Serializer(ModelSerializer):
+    id = IntegerField(required=False, write_only=False)
     photo = Base64ImageField(use_url=True)
 
     class Meta:
         model = Photo
-        exclude = ['gallery']
+        exclude = ['gallery', 'sequence_number']
+
+
+class ChessBoardFlatAnnouncementListSerializer(ModelSerializer):
+    residential_complex = ResidentialComplexDisplaySerializer()
+    creator = AuthRegistrationSerializer()
+
+    class Meta:
+        model = ChessBoardFlat
+        fields = ['residential_complex', 'creator', 'accepted', 'main_photo']
 
 
 class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
+    main_photo = Base64ImageField(use_url=True)
     creator = AuthRegistrationSerializer(read_only=True)
+    residential_complex = ResidentialComplexDisplaySerializer()
     accepted = BooleanField(read_only=True)
-    gallery_photos = PhotoBase64Serializer(source='gallery.photo_set', required=False, many=True)
+    gallery_photos = PhotoBase64Serializer(required=False, many=True)
 
     class Meta:
         model = ChessBoardFlat
         exclude = ['flat', 'chessboard', 'gallery']
+
+    def create(self, validated_data):
+        gallery_photos = validated_data.pop('gallery_photos', None)
+        instance = ChessBoardFlat.objects.create(
+            gallery=Gallery.objects.create(),
+            creator=self.context.get('user'),
+            **validated_data
+        )
+
+        if gallery_photos:
+            for index, dct in enumerate(gallery_photos):
+                Photo.objects.create(
+                    gallery=instance.gallery,
+                    sequence_number=index + 1,
+                    **dct
+                )
+        return instance
+
+    def update(self, instance, validated_data):
+        gallery_photos = validated_data.pop('gallery_photos', None)
+
+        for field in validated_data:
+            setattr(instance, field, validated_data.get(field))
+
+        instance.save()
+
+        remove_items_gallery = {item.id: item for item in instance.gallery.photo_set.all()}
+
+        if gallery_photos:
+            for index, item in enumerate(gallery_photos):
+                item_id = item.get('id', None)
+
+                if not item_id:
+                    Photo.objects.create(gallery=instance.gallery,
+                                         sequence_number=index,
+                                         **item)
+                elif remove_items_gallery.get(item_id, None) is not None:
+                    item_instance: Photo = remove_items_gallery.pop(item_id, None)
+                    item.pop('id')  # delete 'id' field in order to avoid altering of primary key field in db
+                    if not (item_instance.sequence_number == index or item.get('photo', None)):
+                        Photo.objects.filter(id=item_instance.id).update(sequence_number=index,
+                                                                         **item)
+
+        return instance
+
+    def to_internal_value(self, data):
+        # setting sequence of photos
+        for index, dct in enumerate(data.get('gallery_photos')):
+            dct['sequence_number'] = index + 1
+        returning_data = super().to_internal_value(data)
+        return returning_data
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data.update(
+            {
+                'gallery_photos': PhotoBase64Serializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'), many=True).data
+            }
+        )
+        return data

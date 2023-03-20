@@ -146,7 +146,7 @@ class Photo(models.Model):
     gallery = models.ForeignKey(Gallery, on_delete=models.CASCADE)
     photo = models.ImageField(upload_to='photos/')
     created_at = models.DateTimeField(auto_now_add=True)
-    sequence_number = models.IntegerField(validators=[MinValueValidator(0)])
+    sequence_number = models.IntegerField(validators=[MinValueValidator(0)], blank=True, null=True)
 
 
 class Flat(models.Model):
