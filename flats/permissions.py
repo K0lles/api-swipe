@@ -2,7 +2,8 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from django.utils.translation import gettext_lazy as _
 
-from flats.models import ResidentialComplex, Flat, Section, Floor, Corps, Document, ChessBoardFlat
+from flats.models import ResidentialComplex, Flat, Section, Floor, Corps, Document, ChessBoardFlat, AdditionInComplex, \
+    Photo
 
 
 class CustomIsAuthenticated(IsAuthenticated):
@@ -20,16 +21,6 @@ class IsBuilderPermission(BasePermission):
 
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role.role == 'builder'
-
-    # def has_object_permission(self, request, view, obj):
-    #     print('checking object permission')
-    #     if isinstance(obj, ResidentialComplex):
-    #         return request.user == obj.owner
-    #     elif isinstance(obj, (Flat, Section, Floor, Corps, Document)):
-    #         return request.user == obj.residential_complex.owner
-    #     elif isinstance(obj, ChessBoardFlat):
-    #         return request.user == obj.creator
-    #     return False
 
 
 class IsAdminPermission(BasePermission):
@@ -58,7 +49,7 @@ class IsOwnerPermission(BasePermission):
     def has_object_permission(self, request, view, obj):
         if isinstance(obj, ResidentialComplex):
             return request.user == obj.owner
-        elif isinstance(obj, (Flat, Section, Floor, Corps, Document)):
+        elif isinstance(obj, (AdditionInComplex, Flat, Section, Floor, Corps, Document)):
             return request.user == obj.residential_complex.owner
         elif isinstance(obj, ChessBoardFlat):
             return request.user == obj.creator
@@ -70,3 +61,17 @@ class IsUserPermission(BasePermission):
 
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role.role == 'user'
+
+
+class IsResidentialComplexOrFlatPhotoOwner(BasePermission):
+
+    def has_object_permission(self, request, view, obj: Photo):
+        return (request.user == obj.gallery.residentialcomplex.owner
+                or request.user == obj.gallery.flat.residential_complex.owner)
+
+
+class IsChessBoardFlatPhotoOwner(BasePermission):
+
+    def has_object_permission(self, request, view, obj: Photo):
+        return (request.user == obj.gallery.chessboardflat.creator
+                or request.user == obj.gallery.chessboardflat.residential_complex.owner)
