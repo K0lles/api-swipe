@@ -19,6 +19,7 @@ def update_gallery_photos(instance, gallery_photos, use_sequence=False):
             elif remove_items_gallery.get(item_id, None) is not None:
                 item_instance: Photo = remove_items_gallery.pop(item_id, None)
                 item.pop('id')      # delete 'id' field in order to avoid altering of primary key field in db
+
                 if use_sequence:
                     if item_instance.sequence_number != index or item.get('photo', None):
                         Photo.objects.filter(id=item_instance.id).update(sequence_number=index,
@@ -27,4 +28,4 @@ def update_gallery_photos(instance, gallery_photos, use_sequence=False):
                     if item.get('photo', None):
                         Photo.objects.filter(id=item_instance.id).update(**item)
 
-        instance.gallery.refresh_from_db(fields=['photo_set'])  # refresh prefetch_related photo_set
+        instance.gallery.refresh_from_db(fields=['photo_set'])  # refresh prefetched photo_set

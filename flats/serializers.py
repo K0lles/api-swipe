@@ -55,6 +55,7 @@ class PhotoSerializer(ModelSerializer):
 
 
 class AdditionSerializer(ModelSerializer):
+    logo = Base64ImageField(use_url=True)
 
     class Meta:
         model = Addition
@@ -283,23 +284,95 @@ class FloorSerializer(ModelSerializer):
         fields = '__all__'
 
 
+class SectionFlatSerializer(ModelSerializer):
+
+    class Meta:
+        model = Section
+        fields = ['id', 'name']
+
+    def to_internal_value(self, data: int):
+        try:
+            return Section.objects.select_related('residential_complex').get(pk=data)
+        except Section.DoesNotExist:
+            raise ValidationError({'section': _('Вказана секція не існує.')})
+
+
+class FloorFlatSerializer(ModelSerializer):
+
+    class Meta:
+        model = Floor
+        fields = ['id', 'name']
+
+    def to_internal_value(self, data: int):
+        try:
+            return Floor.objects.select_related('residential_complex').get(pk=data)
+        except Floor.DoesNotExist:
+            raise ValidationError({'floor': _('Вказаний поверх не існує.')})
+
+
+class CorpsFlatSerializer(ModelSerializer):
+
+    class Meta:
+        model = Corps
+        fields = ['id', 'name']
+
+    def to_internal_value(self, data: int):
+        try:
+            return Corps.objects.select_related('residential_complex').get(pk=data)
+        except Corps.DoesNotExist:
+            raise ValidationError({'corps': _('Вказаний корпус не існує.')})
+
+
+class FlatListSerializer(ModelSerializer):
+
+    class Meta:
+        model = Flat
+        fields = ['corps', 'floor', 'section', 'scheme']
+
+
 class FlatBuilderSerializer(ModelSerializer):
+    section = SectionFlatSerializer()
+    floor = FloorFlatSerializer()
+    corps = CorpsFlatSerializer()
+    scheme = Base64ImageField(use_url=True)
     gallery_photos = PhotoSerializer(source='gallery.photo_set', required=False, many=True)
 
     class Meta:
         model = Flat
         exclude = ['residential_complex', 'gallery']
 
+    def validate(self, attrs):
+        if attrs.get('section', None) and attrs.get('floor', None) and attrs.get('corps', None):
+            if attrs.get('section', None).residential_complex != attrs.get('floor').residential_complex \
+                    != attrs.get('corps').residential_complex:
+                raise ValidationError({'corps': _('Корпус, секція та поверх повинні бути із одного ЖК.'),
+                                       'section': _('Корпус, секція та поверх повинні бути із одного ЖК.'),
+                                       'floor': _('Корпус, секція та поверх повинні бути із одного ЖК.')})
+        return super().validate(attrs)
+
     def create(self, validated_data):
+        gallery = validated_data.pop('gallery', None)
+        gallery_photos = gallery.get('photo_set', None) if gallery else None
+
         validated_data['residential_complex'] = self.context.get('residential_complex')
         instance = Flat.objects.create(
             gallery=Gallery.objects.create(),
             **validated_data
         )
+
+        if gallery_photos:
+            for index, item in enumerate(gallery_photos):
+                Photo.objects.create(
+                    gallery=instance.gallery,
+                    photo=item.get('photo'),
+                    sequence_number=index + 1
+                )
+
         return instance
 
     def update(self, instance, validated_data):
-        gallery_photos = validated_data.pop('gallery_photos', None)
+        gallery = validated_data.pop('gallery', None)
+        gallery_photos = gallery.get('photo_set', None) if gallery else None
 
         for field in validated_data:
             setattr(instance, field, validated_data.get(field))
@@ -309,14 +382,21 @@ class FlatBuilderSerializer(ModelSerializer):
 
         return instance
 
+    def to_representation(self, instance: Flat):
+        data = super().to_representation(instance)
+        data.update(
+            {
+                'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'), many=True).data
+            }
+        )
+        return data
 
-class PhotoBase64Serializer(ModelSerializer):
-    id = IntegerField(required=False, write_only=False)
-    photo = Base64ImageField(use_url=True)
+
+class PromotionTypeSerializer(ModelSerializer):
 
     class Meta:
-        model = Photo
-        exclude = ['gallery', 'sequence_number']
+        model = PromotionType
+        fields = '__all__'
 
 
 class ChessBoardFlatAnnouncementListSerializer(ModelSerializer):
@@ -333,7 +413,7 @@ class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
     creator = AuthRegistrationSerializer(read_only=True)
     residential_complex = ResidentialComplexDisplaySerializer()
     accepted = BooleanField(read_only=True)
-    gallery_photos = PhotoBase64Serializer(required=False, many=True)
+    gallery_photos = PhotoSerializer(required=False, many=True)
 
     class Meta:
         model = ChessBoardFlat
@@ -372,7 +452,27 @@ class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
         data = super().to_representation(instance)
         data.update(
             {
-                'gallery_photos': PhotoBase64Serializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'), many=True).data
+                'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'), many=True).data
             }
         )
         return data
+
+
+class AnnouncementApproveSerializer(ModelSerializer):
+    creator = AuthRegistrationSerializer(read_only=True)
+    flat = FlatListSerializer()
+    gallery_photos = PhotoSerializer(source='gallery.photo_set', required=False, many=True)
+
+    class Meta:
+        model = ChessBoardFlat
+        exclude = ['gallery']
+
+    def validate(self, attrs):
+        super().validate(attrs)
+
+        if attrs.get('accepted', None) and not attrs.get('flat', None):
+            raise ValidationError({'flat': _('При підтвердженні об`яви має бути указана квартира.')})
+
+        if attrs.get('flat', None) and attrs.get('flat').condition == 'draft':
+            raise ValidationError({'flat': _('Квартира повинна бути житловою.')})
+        return attrs
