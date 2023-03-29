@@ -335,7 +335,7 @@ class FlatListSerializer(ModelSerializer):
 
     class Meta:
         model = Flat
-        fields = ['corps', 'floor', 'section', 'scheme', 'residential_complex']
+        fields = ['id', 'corps', 'floor', 'section', 'scheme', 'residential_complex']
 
     def to_internal_value(self, data: int):
         try:

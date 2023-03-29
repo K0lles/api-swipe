@@ -928,11 +928,14 @@ class ChessBoardAPIViewSet(PsqMixin,
         'list_chessboard_by_residential': [
             Rule([CustomIsAuthenticated], ChessBoardListSerializer)
         ],
+        'my_detail': [
+            Rule([CustomIsAuthenticated])
+        ],
         'destroy': [
             Rule([IsAdminPermission]),
             Rule([IsManagerPermission])
         ],
-        ('my_list', 'my_detail', 'my_create', 'my_destroy'): [
+        ('my_list', 'my_create', 'my_destroy'): [
             Rule([IsBuilderPermission, IsOwnerPermission])
         ]
     }

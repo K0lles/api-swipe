@@ -174,6 +174,14 @@ class UserSubscriptionSerializer(ModelSerializer):
         exclude = ['user']
         read_only_fields = ['expire_date']
 
+    def to_internal_value(self, data):
+        ret = {}
+        try:
+            ret['subscription'] = Subscription.objects.get(pk=data.get('subscription'))
+        except Subscription.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаної підписки не існує.')})
+        return ret
+
     def validate(self, attrs):
         if not self.instance and UserSubscription.objects.filter(user=self.context.get('user')).exists():
             raise ValidationError({'user': _('У вас вже є підписка.')})
