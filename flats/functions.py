@@ -1,3 +1,5 @@
+from django.core.exceptions import FieldDoesNotExist
+
 from flats.models import Photo
 
 
@@ -27,5 +29,7 @@ def update_gallery_photos(instance, gallery_photos, use_sequence=False):
                 else:
                     if item.get('photo', None):
                         Photo.objects.filter(id=item_instance.id).update(**item)
-
-        instance.gallery.refresh_from_db(fields=['photo_set'])  # refresh prefetched photo_set
+        try:
+            instance.gallery.refresh_from_db(fields=['photo_set'])  # refresh prefetched photo_set
+        except FieldDoesNotExist:
+            pass

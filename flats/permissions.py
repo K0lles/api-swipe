@@ -4,7 +4,7 @@ from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ObjectDoesNotExist
 
 from flats.models import ResidentialComplex, Flat, Section, Floor, Corps, Document, ChessBoardFlat, AdditionInComplex, \
-    Photo
+    Photo, ChessBoard
 
 
 class CustomIsAuthenticated(IsAuthenticated):
@@ -50,7 +50,7 @@ class IsOwnerPermission(BasePermission):
     def has_object_permission(self, request, view, obj):
         if isinstance(obj, ResidentialComplex):
             return request.user == obj.owner
-        elif isinstance(obj, (AdditionInComplex, Flat, Section, Floor, Corps, Document, ChessBoardFlat)):
+        elif isinstance(obj, (AdditionInComplex, Flat, Section, Floor, Corps, Document, ChessBoardFlat, ChessBoard)):
             return request.user == obj.residential_complex.owner
 
         return False

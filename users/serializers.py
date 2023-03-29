@@ -1,4 +1,7 @@
+from datetime import datetime, timedelta
+
 from allauth.account.models import EmailAddress
+from django.utils import timezone
 from django.utils.encoding import force_str
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
@@ -11,7 +14,7 @@ from dj_rest_auth.serializers import LoginSerializer, PasswordResetConfirmSerial
 
 from users.fields import RoleField
 from users.forms import CustomSetPasswordForm
-from users.models import User, Role, Notary
+from users.models import User, Role, Notary, Subscription, UserSubscription
 
 
 class AuthLoginSerializer(LoginSerializer):
@@ -154,3 +157,32 @@ class NotaryUpdateSerializer(ModelSerializer):
             setattr(instance, field, validated_data.get(field))
         instance.save()
         return instance
+
+
+class SubscriptionSerializer(ModelSerializer):
+
+    class Meta:
+        model = Subscription
+        fields = '__all__'
+
+
+class UserSubscriptionSerializer(ModelSerializer):
+    subscription = SubscriptionSerializer()
+
+    class Meta:
+        model = UserSubscription
+        exclude = ['user']
+        read_only_fields = ['expire_date']
+
+    def validate(self, attrs):
+        if not self.instance and UserSubscription.objects.filter(user=self.context.get('user')).exists():
+            raise ValidationError({'user': _('У вас вже є підписка.')})
+        return super().validate(attrs)
+
+    def create(self, validated_data):
+        subscription = UserSubscription.objects.create(
+            user=self.context.get('user'),
+            expire_date=timezone.now() + timedelta(days=30),
+            **validated_data
+        )
+        return subscription

@@ -171,15 +171,9 @@ class Flat(models.Model):
 
 
 class ChessBoard(models.Model):
+    residential_complex = models.ForeignKey(ResidentialComplex, on_delete=models.PROTECT)
     section = models.ForeignKey(Section, on_delete=models.PROTECT)
     corps = models.ForeignKey(Corps, on_delete=models.PROTECT)
-    number = models.CharField(max_length=8)
-
-    class Type(models.TextChoices):
-        draft = ('draft', 'Чорновик')
-        # TODO: the same
-
-    chess_type = models.CharField(max_length=20, choices=Type.choices)
     created_at = models.DateField(auto_now_add=True)
 
 

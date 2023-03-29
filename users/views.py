@@ -15,9 +15,12 @@ from drf_spectacular.utils import extend_schema
 
 from drf_psq import PsqMixin, Rule
 
-from .models import User, Notary
-from .serializers import UserSerializer, UserAdminSerializer, NotarySerializer, NotaryUpdateSerializer, AuthPasswordResetConfirmSerializer
-from flats.permissions import IsAdminPermission, IsManagerPermission
+from flats.paginators import CustomPageNumberPagination
+from .models import User, Notary, Subscription, UserSubscription
+from .permissions import CustomIsAuthenticated
+from .serializers import UserSerializer, UserAdminSerializer, NotarySerializer, NotaryUpdateSerializer, \
+    AuthPasswordResetConfirmSerializer, SubscriptionSerializer, UserSubscriptionSerializer
+from flats.permissions import IsAdminPermission, IsManagerPermission, IsUserPermission
 
 
 class ConfirmationCongratulationView(TemplateResponseMixin, View):
@@ -158,3 +161,67 @@ class NotaryAPIViewSet(PsqMixin, ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         raise ValidationError({'detail': _('Метод PATCH не підтримується. Використовуйте метод PUT.')},
                               code=status.HTTP_404_NOT_FOUND)
+
+
+@extend_schema(tags=['Subscription'])
+class SubscriptionAPIViewSet(PsqMixin,
+                             ModelViewSet):
+
+    serializer_class = SubscriptionSerializer
+    pagination_class = CustomPageNumberPagination
+
+    psq_rules = {
+        ('list', 'retrieve'): [
+            Rule([CustomIsAuthenticated])
+        ],
+        ('create', 'update', 'partial_update', 'destroy'): [
+            Rule([IsAdminPermission]),
+            Rule([IsManagerPermission])
+        ]
+    }
+
+    def get_queryset(self):
+        queryset = Subscription.objects.all()
+        return self.paginate_queryset(queryset)
+
+
+@extend_schema(tags=['User subscription'])
+class UserSubscriptionAPIViewSet(PsqMixin,
+                                 GenericViewSet):
+
+    serializer_class = UserSubscriptionSerializer
+
+    psq_rules = {
+        ('list', 'create', 'partial_update', 'destroy'): [
+            Rule([IsUserPermission])
+        ]
+    }
+
+    def get_object(self, *args, **kwargs):
+        try:
+            return UserSubscription.objects.get(user=self.request.user)
+        except UserSubscription.DoesNotExist:
+            raise ValidationError({'detail': _('У вас ще немає підписки.')})
+
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.get_object())
+        return Response(data=serializer.data, status=status.HTTP_200_OK)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'user': request.user})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def partial_update(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, *args, **kwargs):
+        obj_to_delete: UserSubscription = self.get_object()
+        obj_to_delete.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

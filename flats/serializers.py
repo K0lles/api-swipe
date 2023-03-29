@@ -3,7 +3,7 @@ from django.db.models import Max, Min
 from django.utils.translation import gettext_lazy as _
 
 from rest_framework.exceptions import ValidationError
-from rest_framework.fields import CharField, IntegerField, BooleanField
+from rest_framework.fields import CharField, IntegerField, BooleanField, ImageField, DateTimeField, DateField
 from rest_framework.serializers import ModelSerializer, PrimaryKeyRelatedField, Serializer
 
 from drf_extra_fields.fields import Base64ImageField
@@ -295,6 +295,8 @@ class SectionFlatSerializer(ModelSerializer):
             return Section.objects.select_related('residential_complex').get(pk=data)
         except Section.DoesNotExist:
             raise ValidationError({'section': _('Вказана секція не існує.')})
+        except TypeError:
+            raise ValidationError({'section': _('Неправильно вказано секцію.')})
 
 
 class FloorFlatSerializer(ModelSerializer):
@@ -321,16 +323,32 @@ class CorpsFlatSerializer(ModelSerializer):
             return Corps.objects.select_related('residential_complex').get(pk=data)
         except Corps.DoesNotExist:
             raise ValidationError({'corps': _('Вказаний корпус не існує.')})
+        except TypeError:
+            raise ValidationError({'corps': _('Неправильно вказано корпус.')})
 
 
 class FlatListSerializer(ModelSerializer):
+    corps = CorpsFlatSerializer()
+    floor = FloorFlatSerializer()
+    section = SectionFlatSerializer()
+    residential_complex = ResidentialComplexDisplaySerializer()
 
     class Meta:
         model = Flat
-        fields = ['corps', 'floor', 'section', 'scheme']
+        fields = ['corps', 'floor', 'section', 'scheme', 'residential_complex']
+
+    def to_internal_value(self, data: int):
+        try:
+            flat = Flat.objects.select_related('residential_complex', 'section', 'corps').get(pk=data)
+            return flat
+        except Flat.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаної квартири не існує.')})
+        except TypeError:
+            raise ValidationError({'detail': _('Неправильно вказано квартиру.')})
 
 
 class FlatBuilderSerializer(ModelSerializer):
+    residential_complex = ResidentialComplexDisplaySerializer()
     section = SectionFlatSerializer()
     floor = FloorFlatSerializer()
     corps = CorpsFlatSerializer()
@@ -339,7 +357,7 @@ class FlatBuilderSerializer(ModelSerializer):
 
     class Meta:
         model = Flat
-        exclude = ['residential_complex', 'gallery']
+        exclude = ['gallery']
 
     def validate(self, attrs):
         if attrs.get('section', None) and attrs.get('floor', None) and attrs.get('corps', None):
@@ -399,6 +417,83 @@ class PromotionTypeSerializer(ModelSerializer):
         fields = '__all__'
 
 
+class ChessBoardListSerializer(ModelSerializer):
+    """
+    Serializer for displaying ChessBoard with bounded corps and section.
+    """
+    created_at = DateField(format='%d.%m.%Y')
+    section = SectionFlatSerializer()
+    corps = CorpsFlatSerializer()
+
+    class Meta:
+        model = ChessBoard
+        fields = ['id', 'corps', 'section', 'created_at']
+
+
+class FlatInChessFlatSerializer(ModelSerializer):
+    """
+    For short preview of flat inside ChessBoardFlat while revising
+    separate ChessBoard
+    """
+    floor = FloorFlatSerializer()
+
+    class Meta:
+        model = Flat
+        fields = ['id', 'floor', 'scheme']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['price_per_meter'] = instance.price / instance.square
+        return data
+
+
+class ChessFlatInChessBoardSerializer(ModelSerializer):
+    """
+    For display ChessBoardFlats inside certain ChessBoard on certain
+    corps and section.
+    """
+    flat = FlatInChessFlatSerializer()
+
+    class Meta:
+        model = ChessBoardFlat
+        fields = ['flat', 'kitchen_square', 'price']
+
+
+class ChessBoardSerializer(ModelSerializer):
+    section = SectionFlatSerializer()
+    corps = CorpsFlatSerializer()
+    flats = ChessFlatInChessBoardSerializer(source='chessboardflat_set', many=True)
+
+    class Meta:
+        model = ChessBoard
+        fields = ['section', 'corps', 'flats']
+
+    def validate(self, attrs):
+        if not self.context.get('residential_complex', None):
+            raise AttributeError(f'Residential Complex must be chosen while initializing {__class__} instance.')
+
+        if attrs.get('corps', None).residential_complex != self.context.get('residential_complex') \
+                != attrs.get('section', None).residential_complex:
+            raise ValidationError({'corps': _('Корпус має належати тому саму ЖК, що і шахматка.'),
+                                   'section': _('Секція має належати тому саму ЖК, що і шахматка.')})
+
+        if ChessBoard.objects.filter(residential_complex=self.context.get('residential_complex'),
+                                     corps=attrs.get('corps'),
+                                     section=attrs.get('section')).exists():
+            raise ValidationError({'corps': _('Шахматка із даним корпусом та секцією вже існує.'),
+                                   'section': _('Шахматка із даним корпусом та секцією вже існує.')})
+
+        return attrs
+
+    def create(self, validated_data):
+        instance = ChessBoard.objects.create(
+            residential_complex=self.context.get('residential_complex'),
+            **validated_data
+        )
+
+        return instance
+
+
 class ChessBoardFlatAnnouncementListSerializer(ModelSerializer):
     residential_complex = ResidentialComplexDisplaySerializer()
     creator = AuthRegistrationSerializer()
@@ -409,6 +504,10 @@ class ChessBoardFlatAnnouncementListSerializer(ModelSerializer):
 
 
 class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
+    """
+    Serializer for creating announcements by users
+    indicating RC, main photo etc.
+    """
     main_photo = Base64ImageField(use_url=True)
     creator = AuthRegistrationSerializer(read_only=True)
     residential_complex = ResidentialComplexDisplaySerializer()
@@ -458,21 +557,67 @@ class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
         return data
 
 
+class AnnouncementListSerializer(ModelSerializer):
+    """
+    Serializer for listing both accepted or unaccepted announcements of builder.
+    """
+
+    class Meta:
+        model = ChessBoardFlat
+        fields = ['id', 'main_photo', 'price', 'payment_option', 'house_condition']
+
+
 class AnnouncementApproveSerializer(ModelSerializer):
+    """
+    Serializer for builder to accept and modify announcements create by
+    users.
+    Only update() method is user here, as announcement already exists
+    and builder is approving it.
+    """
     creator = AuthRegistrationSerializer(read_only=True)
+    main_photo = Base64ImageField(use_url=True, required=False)
     flat = FlatListSerializer()
-    gallery_photos = PhotoSerializer(source='gallery.photo_set', required=False, many=True)
+    gallery_photos = PhotoSerializer(required=False, many=True)
+    residential_complex = ResidentialComplexDisplaySerializer()
+    chessboard = ChessBoardSerializer(read_only=True)
 
     class Meta:
         model = ChessBoardFlat
         exclude = ['gallery']
 
     def validate(self, attrs):
-        super().validate(attrs)
-
+        # checking whether flat is absent while 'accepted' set to True
         if attrs.get('accepted', None) and not attrs.get('flat', None):
             raise ValidationError({'flat': _('При підтвердженні об`яви має бути указана квартира.')})
 
-        if attrs.get('flat', None) and attrs.get('flat').condition == 'draft':
-            raise ValidationError({'flat': _('Квартира повинна бути житловою.')})
+        # checking whether flat's RC equals RC of self.instance
+        if attrs.get('flat', None).residential_complex != self.instance.residential_complex:
+            raise ValidationError({'detail': _('Квартира повинна належати вашому ЖК.')})
+
+        # getting or creating chessboard, on which current announcement will be registered
+        chessboard, created = ChessBoard.objects.get_or_create(residential_complex=self.instance.residential_complex,
+                                                               corps=attrs.get('flat').corps,
+                                                               section=attrs.get('flat').section)
+        attrs['chessboard'] = chessboard
+
         return attrs
+
+    def update(self, instance: ChessBoardFlat, validated_data):
+        gallery_photos = validated_data.pop('gallery_photos', None)
+
+        for field in validated_data:
+            setattr(instance, field, validated_data.get(field))
+
+        update_gallery_photos(instance, gallery_photos, use_sequence=True)
+
+        instance.save()
+        return instance
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data.update(
+            {
+                'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'), many=True).data
+            }
+        )
+        return data

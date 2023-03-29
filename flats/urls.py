@@ -15,6 +15,7 @@ router.register(r'sections', SectionAPIViewSet, basename='sections')
 router.register(r'photo', PhotoAPIDeleteViews, basename='photo')
 router.register(r'floors', FloorAPIViewSet, basename='floors')
 router.register(r'promotion-types', PromotionTypeAPIViewSet, basename='promotion-types')
+router.register(r'chessboards', ChessBoardAPIViewSet, basename='chessboards')
 router.register(r'announcements', ChessBoardFlatAnnouncementAPIViewSet, basename='announcements')
 router.register(r'announcements-approval', ChessBoardFlatApprovingAPIViewSet, basename='announcements-approve')
 

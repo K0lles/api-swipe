@@ -2,6 +2,7 @@ import os.path
 from datetime import timedelta
 from pathlib import Path
 import environ
+from celery.schedules import crontab
 
 from django.urls import reverse_lazy
 
@@ -217,6 +218,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+DEFAULT_FROM_EMAIL = env('EMAIL_HOST_USER')
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_USE_TLS = True
@@ -226,3 +228,19 @@ EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 
 CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+CELERY_ACCEPT_CONTENT = ['application/json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/1'
+CELERY_TIMEZONE = 'Europe/Kyiv'
+
+CELERY_BEAT_SCHEDULE = {
+    'every-day-carrying-on-subscription': {
+        'task': 'users.tasks.carry_on_activation',
+        'schedule': crontab(minute=2, hour=0)
+    },
+    'every-day-deactivating-subscription': {
+        'task': 'users.tasks.deactivate_subscription',
+        'schedule': crontab(minute=3, hour=0)
+    }
+}
