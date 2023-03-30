@@ -79,10 +79,11 @@ class AuthPasswordResetConfirmSerializer(PasswordResetConfirmSerializer):
 class UserSerializer(ModelSerializer):
     password = CharField(write_only=True)
     notifications = CharField()
+    role = RoleField(read_only=True)
 
     class Meta:
         model = User
-        exclude = ['role', 'is_active', 'is_blocked', 'last_login']
+        exclude = ['is_active', 'is_blocked', 'last_login']
 
     def validate_notifications(self, value: str):
         if value not in ['me', 'me-agent', 'agent', 'disabled']:

@@ -18,6 +18,7 @@ router.register(r'promotion-types', PromotionTypeAPIViewSet, basename='promotion
 router.register(r'chessboards', ChessBoardAPIViewSet, basename='chessboards')
 router.register(r'announcements', ChessBoardFlatAnnouncementAPIViewSet, basename='announcements')
 router.register(r'announcements-approval', ChessBoardFlatApprovingAPIViewSet, basename='announcements-approve')
+router.register(r'announcement-promotion', AnnouncementPromotionAPIViewSet, basename='announcement-promotion')
 
 
 urlpatterns = [

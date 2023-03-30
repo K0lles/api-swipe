@@ -821,9 +821,9 @@ class FlatAPIViewSet(PsqMixin,
         'my_flats': [
             Rule([IsBuilderPermission, IsOwnerPermission], FlatListSerializer)
         ],
-        ('my_flats_create', 'my_flats_update', 'my_flats_delete'):
-            [Rule([IsBuilderPermission, IsOwnerPermission])],
-
+        ('my_flats_create', 'my_not_bounded_flats', 'my_flats_update', 'my_flats_delete'): [
+            Rule([IsBuilderPermission, IsOwnerPermission])
+        ]
     }
 
     def get_residential_complex(self):
@@ -843,6 +843,13 @@ class FlatAPIViewSet(PsqMixin,
             .select_related('corps', 'section', 'floor', 'residential_complex', 'gallery')\
             .prefetch_related('gallery__photo_set')\
             .all()
+        return self.paginate_queryset(queryset)
+
+    def get_not_bounded_queryset(self):
+        queryset = Flat.objects \
+            .select_related('chessboardflat', 'corps', 'section', 'floor', 'residential_complex', 'gallery')\
+            .prefetch_related('gallery__photo_set') \
+            .filter(chessboardflat__isnull=True)
         return self.paginate_queryset(queryset)
 
     def get_own_flats_queryset(self):
@@ -891,8 +898,14 @@ class FlatAPIViewSet(PsqMixin,
         serializer = self.get_serializer(instance=self.get_own_flats_queryset(), many=True)
         return self.get_paginated_response(data=serializer.data)
 
+    @action(methods=['GET'], detail=False, url_path='not-bounded')
+    def my_not_bounded_flats(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.get_not_bounded_queryset(), many=True)
+        return self.get_paginated_response(serializer.data)
+
     @action(methods=['POST'], detail=False, url_path='my/create')
     def my_flats_create(self, request, *args, **kwargs):
+        print(request.data)
         residential_complex = self.get_residential_complex()
         serializer = self.get_serializer(data=request.data, context={'residential_complex': residential_complex})
         if serializer.is_valid():
@@ -928,7 +941,7 @@ class ChessBoardAPIViewSet(PsqMixin,
         'list_chessboard_by_residential': [
             Rule([CustomIsAuthenticated], ChessBoardListSerializer)
         ],
-        'my_detail': [
+        'retrieve': [
             Rule([CustomIsAuthenticated])
         ],
         'destroy': [
@@ -1043,8 +1056,7 @@ class ChessBoardAPIViewSet(PsqMixin,
         serializer = self.get_serializer(instance=self.get_queryset(), many=True)
         return self.get_paginated_response(serializer.data)
 
-    @action(methods=['GET'], detail=True, url_path='my')
-    def my_detail(self, request, *args, **kwargs):
+    def retrieve(self, request, *args, **kwargs):
         serializer = self.get_serializer(instance=self.get_object())
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -1083,7 +1095,7 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
     """
 
     serializer_class = ChessBoardFlatAnnouncementSerializer
-    http_method_names = ['get', 'post', 'put', 'delete']
+    http_method_names = ['get', 'post', 'patch', 'delete']
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
@@ -1092,12 +1104,16 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
             Rule([IsManagerPermission], ChessBoardFlatAnnouncementListSerializer)
         ],
         ('retrieve',): [
-            Rule([IsUserPermission, IsCreatorPermission], ChessBoardFlatAnnouncementSerializer)
+            Rule([IsUserPermission, IsCreatorPermission], ChessBoardFlatAnnouncementSerializer),
+            Rule([IsAdminPermission | IsManagerPermission], ChessBoardFlatAnnouncementSerializer)
         ],
         ('create_announcement',): [
             Rule([IsUserPermission])
         ],
-        ('list_own_announcements', 'update_own_announcement', 'destroy_own_announcement'): [
+        'list_own_announcements': [
+            Rule([IsUserPermission], ChessBoardFlatAnnouncementListSerializer)
+        ],
+        ('update_own_announcement', 'destroy_own_announcement'): [
             Rule([IsUserPermission, IsCreatorPermission], ChessBoardFlatAnnouncementSerializer)
         ]
     }
@@ -1131,6 +1147,13 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
             raise ValidationError({'detail': _('Видалити об`яву не вдалося.')})
 
     def retrieve(self, request, *args, **kwargs):
+        """
+        Retrieve method for all authenticated users.
+        :param request:
+        :param args:
+        :param kwargs: pk: int
+        :return: ChessBoardFlat
+        """
         serializer = self.get_serializer(instance=self.get_object())
         return Response(data=serializer.data, status=status.HTTP_200_OK)
 
@@ -1139,6 +1162,11 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
         self.destroy_object(obj)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        responses={
+            '200': ChessBoardFlatAnnouncementListSerializer(many=True)
+        }
+    )
     @action(methods=['GET'], detail=False, url_path='my')
     def list_own_announcements(self, request, *args, **kwargs):
         serializer = self.get_serializer(instance=self.get_owner_queryset(), many=True)
@@ -1152,7 +1180,7 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
             return Response(data=serializer.data, status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['PUT'], detail=True, url_path='my/update')
+    @action(methods=['PATCH'], detail=True, url_path='my/update')
     def update_own_announcement(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
         if serializer.is_valid():
@@ -1183,7 +1211,7 @@ class ChessBoardFlatApprovingAPIViewSet(PsqMixin,
         ('list', 'requests'): [
             Rule([IsBuilderPermission], AnnouncementListSerializer)
         ],
-        ('approve_announcement', 'announcement_detail'): [
+        ('approve_announcement', 'announcement_detail', 'delete_announcement'): [
             Rule([IsBuilderPermission, IsOwnerPermission])
         ]
     }
@@ -1245,24 +1273,36 @@ class ChessBoardFlatApprovingAPIViewSet(PsqMixin,
             return Response(data=serializer.data, status=status.HTTP_200_OK)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(methods=['DELETE'], detail=True, url_path='delete')
+    def delete_announcement(self, request, *args, **kwargs):
+        obj: ChessBoardFlat = self.get_object()
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 @extend_schema(tags=['Promotions'])
 class PromotionTypeAPIViewSet(PsqMixin,
                               ListCreateAPIView,
                               GenericViewSet):
     serializer_class = PromotionTypeSerializer
-    http_method_names = ['get', 'post', 'put']
+    http_method_names = ['get', 'post', 'patch']
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
         'list': [
             Rule([CustomIsAuthenticated])
         ],
-        'create': [
+        ('create', 'update'): [
             Rule([IsAdminPermission]),
             Rule([IsManagerPermission])
         ]
     }
+
+    def get_object(self, *args, **kwargs):
+        try:
+            return PromotionType.objects.get(pk=self.kwargs.get(self.lookup_field))
+        except PromotionType.DoesNotExist:
+            raise ValidationError({'detail': _('Такого типу просування не існує.')})
 
     def get_queryset(self):
         queryset = PromotionType.objects.all()
@@ -1271,9 +1311,81 @@ class PromotionTypeAPIViewSet(PsqMixin,
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
-    def update(self, request, *args, **kwargs):
+    def partial_update(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(data=serializer.data, status=status.HTTP_200_OK)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(tags=['Announcement Promotion'])
+class AnnouncementPromotionAPIViewSet(PsqMixin,
+                                      GenericViewSet):
+    serializer_class = PromotionSerializer
+
+    psq_rules = {
+        ('create', 'destroy_promotion'): [
+            Rule([IsUserPermission, IsCreatorPermission])
+        ]
+    }
+
+    def get_chessboard_flat_object(self):
+        if not self.request.query_params.get('announcement', None):
+            raise ValidationError({'detail': _('Не вказане оголошення.')})
+        try:
+            chessboard_flat = ChessBoardFlat.objects.get(pk=self.request.query_params.get('announcement'))
+            if not IsCreatorPermission().has_object_permission(self.request, self, chessboard_flat):
+                raise ValidationError({'detail': _('Ви не є власником створеного оголошення.')}, code=status.HTTP_403_FORBIDDEN)
+            return chessboard_flat
+        except ChessBoardFlat.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаного оголошення не існує.')})
+
+    def get_promotion_type(self):
+        if not self.request.query_params.get('promotion_type', None):
+            raise ValidationError({'detail': _('Не вказаний тип просування.')})
+        try:
+            return PromotionType.objects.get(pk=self.request.query_params.get('promotion_type'))
+        except PromotionType.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаного типу просування не існує.')})
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='announcement',
+                type=int,
+                required=True
+            ),
+            OpenApiParameter(
+                name='promotion_type',
+                type=int,
+                required=True
+            )
+        ]
+    )
+    def create(self, request, *args, **kwargs):
+        self.obj = self.get_chessboard_flat_object()
+        serializer = self.get_serializer(
+            data=request.data,
+            context={'chessboard_flat': self.obj,
+                     'promotion_type': self.get_promotion_type()}
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response(status=status.HTTP_201_CREATED)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='announcement',
+                type=int
+            )
+        ]
+    )
+    @action(methods=['DELETE'], detail=False, url_path='clear')
+    def destroy_promotion(self, request, *args, **kwargs):
+        chessboard_flat = self.get_chessboard_flat_object()
+        chessboard_flat.promotion.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+

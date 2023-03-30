@@ -1,9 +1,11 @@
 from django.db import IntegrityError
 from django.db.models import Max, Min
+from django.core.exceptions import ObjectDoesNotExist
 from django.utils.translation import gettext_lazy as _
+from drf_spectacular.utils import extend_schema_serializer, OpenApiExample
 
 from rest_framework.exceptions import ValidationError
-from rest_framework.fields import CharField, IntegerField, BooleanField, ImageField, DateTimeField, DateField
+from rest_framework.fields import CharField, IntegerField, BooleanField, ImageField, DateField
 from rest_framework.serializers import ModelSerializer, PrimaryKeyRelatedField, Serializer
 
 from drf_extra_fields.fields import Base64ImageField
@@ -13,30 +15,21 @@ from .models import *
 from users.serializers import AuthRegistrationSerializer
 
 
-class DisplaySerializer(Serializer):
-    model = None
-
-    def to_internal_value(self, data):
-        try:
-            return self.model.objects.get(pk=data)
-        except self.model.DoesNotExist:
-            raise ValidationError({'detail': self.default_error_messages})
-
-    def to_representation(self, value):
-        return {
-            'id': value.id,
-            'name': value.name
-        }
-    
-    def update(self, instance, validated_data):
-        pass
-
-    def create(self, validated_data):
-        pass
-
-
-class ResidentialComplexDisplaySerializer(DisplaySerializer):
-    model = ResidentialComplex
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            'Valid example',
+            value='id',
+            external_value='0',
+            request_only=True,  # signal that example only applies to requests
+            response_only=False
+        )
+    ]
+)
+class ResidentialComplexDisplaySerializer(ModelSerializer):
+    class Meta:
+        model = ResidentialComplex
+        fields = ['id', 'name']
 
     def to_internal_value(self, data: int) -> ResidentialComplex:
         try:
@@ -69,10 +62,10 @@ class FlatSquarePriceSerializer(Serializer):
         flat_info = queryset \
             .values('square', 'price') \
             .aggregate(
-                max_square=Max('square'),
-                min_square=Min('square'),
-                min_price=Min('price')
-            )
+            max_square=Max('square'),
+            min_square=Min('square'),
+            min_price=Min('price')
+        )
 
         return {
             'maximal_square': flat_info.get('max_square', None),
@@ -82,7 +75,6 @@ class FlatSquarePriceSerializer(Serializer):
 
 
 class CustomAdditionSerializer(ModelSerializer):
-
     class Meta:
         model = Addition
         fields = '__all__'
@@ -121,7 +113,6 @@ class CorpsSerializer(ModelSerializer):
 
 
 class CorpsInResidentialSerializer(ModelSerializer):
-
     class Meta:
         model = Corps
         exclude = ['residential_complex']
@@ -174,7 +165,6 @@ class DocumentSerializer(ModelSerializer):
 
 
 class DocumentDisplaySerializer(ModelSerializer):
-
     class Meta:
         model = Document
         exclude = ['residential_complex']
@@ -209,7 +199,6 @@ class NewsSerializer(ModelSerializer):
 
 
 class NewsInResidentialSerializer(ModelSerializer):
-
     class Meta:
         model = News
         exclude = ['residential_complex', 'body']
@@ -285,45 +274,47 @@ class FloorSerializer(ModelSerializer):
 
 
 class SectionFlatSerializer(ModelSerializer):
-
     class Meta:
         model = Section
         fields = ['id', 'name']
 
     def to_internal_value(self, data: int):
         try:
-            return Section.objects.select_related('residential_complex').get(pk=data)
+            pk = data[0] if isinstance(data, list) else data
+            return Section.objects.select_related('residential_complex').get(pk=pk)
         except Section.DoesNotExist:
             raise ValidationError({'section': _('Вказана секція не існує.')})
-        except TypeError:
+        except (TypeError, IndexError):
             raise ValidationError({'section': _('Неправильно вказано секцію.')})
 
 
 class FloorFlatSerializer(ModelSerializer):
-
     class Meta:
         model = Floor
         fields = ['id', 'name']
 
     def to_internal_value(self, data: int):
         try:
-            return Floor.objects.select_related('residential_complex').get(pk=data)
+            pk = data[0] if isinstance(data, list) else data
+            return Floor.objects.select_related('residential_complex').get(pk=pk)
         except Floor.DoesNotExist:
             raise ValidationError({'floor': _('Вказаний поверх не існує.')})
+        except (TypeError, IndexError):
+            raise ValidationError({'floor': _('Неправильно вказано поверх.')})
 
 
 class CorpsFlatSerializer(ModelSerializer):
-
     class Meta:
         model = Corps
         fields = ['id', 'name']
 
     def to_internal_value(self, data: int):
         try:
-            return Corps.objects.select_related('residential_complex').get(pk=data)
+            pk = data[0] if isinstance(data, list) else data
+            return Corps.objects.select_related('residential_complex').get(pk=pk)
         except Corps.DoesNotExist:
             raise ValidationError({'corps': _('Вказаний корпус не існує.')})
-        except TypeError:
+        except (TypeError, IndexError):
             raise ValidationError({'corps': _('Неправильно вказано корпус.')})
 
 
@@ -348,7 +339,7 @@ class FlatListSerializer(ModelSerializer):
 
 
 class FlatBuilderSerializer(ModelSerializer):
-    residential_complex = ResidentialComplexDisplaySerializer()
+    residential_complex = ResidentialComplexDisplaySerializer(read_only=True)
     section = SectionFlatSerializer()
     floor = FloorFlatSerializer()
     corps = CorpsFlatSerializer()
@@ -362,7 +353,7 @@ class FlatBuilderSerializer(ModelSerializer):
     def validate(self, attrs):
         if attrs.get('section', None) and attrs.get('floor', None) and attrs.get('corps', None):
             if attrs.get('section', None).residential_complex != attrs.get('floor').residential_complex \
-                    != attrs.get('corps').residential_complex:
+                    != attrs.get('corps').residential_complex != self.context.get('residential_complex', None):
                 raise ValidationError({'corps': _('Корпус, секція та поверх повинні бути із одного ЖК.'),
                                        'section': _('Корпус, секція та поверх повинні бути із одного ЖК.'),
                                        'floor': _('Корпус, секція та поверх повинні бути із одного ЖК.')})
@@ -400,18 +391,22 @@ class FlatBuilderSerializer(ModelSerializer):
 
         return instance
 
+    def to_internal_value(self, data):
+        print(data)
+        return super().to_internal_value(data)
+
     def to_representation(self, instance: Flat):
         data = super().to_representation(instance)
         data.update(
             {
-                'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'), many=True).data
+                'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'),
+                                                  many=True).data
             }
         )
         return data
 
 
 class PromotionTypeSerializer(ModelSerializer):
-
     class Meta:
         model = PromotionType
         fields = '__all__'
@@ -456,7 +451,7 @@ class ChessFlatInChessBoardSerializer(ModelSerializer):
 
     class Meta:
         model = ChessBoardFlat
-        fields = ['flat', 'kitchen_square', 'price']
+        fields = ['id', 'flat', 'kitchen_square', 'price']
 
 
 class ChessBoardSerializer(ModelSerializer):
@@ -466,7 +461,7 @@ class ChessBoardSerializer(ModelSerializer):
 
     class Meta:
         model = ChessBoard
-        fields = ['section', 'corps', 'flats']
+        fields = ['id', 'section', 'corps', 'flats']
 
     def validate(self, attrs):
         if not self.context.get('residential_complex', None):
@@ -497,12 +492,55 @@ class ChessBoardSerializer(ModelSerializer):
 class ChessBoardFlatAnnouncementListSerializer(ModelSerializer):
     residential_complex = ResidentialComplexDisplaySerializer()
     creator = AuthRegistrationSerializer()
+    chessboard = ChessBoardListSerializer()
 
     class Meta:
         model = ChessBoardFlat
-        fields = ['residential_complex', 'creator', 'accepted', 'main_photo']
+        fields = ['id', 'residential_complex', 'creator', 'accepted', 'main_photo', 'chessboard']
 
 
+class PromotionTypeDisplaySerializer(ModelSerializer):
+
+    class Meta:
+        model = PromotionType
+        fields = ['name', 'price', 'efficiency']
+
+
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            'Valid example',
+            value={
+                "main_photo": "string",
+                "residential_complex": 0,
+                "gallery_photos": [
+                    {
+                        "photo": "string"
+                    },
+                    {
+                      "id": 0,
+                      "photo": "string"
+                    }
+                  ],
+                "address": "string",
+                "purpose": "apartments",
+                "room_amount": 5,
+                "planning": "studio-bathroom",
+                "house_condition": "repair-required",
+                "overall_square": 1,
+                "kitchen_square": 1,
+                "has_balcony": True,
+                "heating_type": "gas",
+                "payment_option": "parent-capital",
+                "agent_commission": 2147483647,
+                "communication_method": "phone-messages",
+                "description": "string",
+                "price": 2147483647
+            },
+            request_only=True
+        )
+    ]
+)
 class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
     """
     Serializer for creating announcements by users
@@ -513,6 +551,7 @@ class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
     residential_complex = ResidentialComplexDisplaySerializer()
     accepted = BooleanField(read_only=True)
     gallery_photos = PhotoSerializer(required=False, many=True)
+    promotion = PromotionTypeDisplaySerializer(source='promotion.promotion_type', read_only=True)
 
     class Meta:
         model = ChessBoardFlat
@@ -547,11 +586,12 @@ class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
 
         return instance
 
-    def to_representation(self, instance):
+    def to_representation(self, instance: ChessBoardFlat):
         data = super().to_representation(instance)
         data.update(
             {
-                'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'), many=True).data
+                'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'),
+                                                  many=True).data
             }
         )
         return data
@@ -579,7 +619,7 @@ class AnnouncementApproveSerializer(ModelSerializer):
     flat = FlatListSerializer()
     gallery_photos = PhotoSerializer(required=False, many=True)
     residential_complex = ResidentialComplexDisplaySerializer()
-    chessboard = ChessBoardSerializer(read_only=True)
+    chessboard = ChessBoardListSerializer(read_only=True)
 
     class Meta:
         model = ChessBoardFlat
@@ -589,6 +629,13 @@ class AnnouncementApproveSerializer(ModelSerializer):
         # checking whether flat is absent while 'accepted' set to True
         if attrs.get('accepted', None) and not attrs.get('flat', None):
             raise ValidationError({'flat': _('При підтвердженні об`яви має бути указана квартира.')})
+
+        if attrs.get('flat', None):
+            try:
+                chessboard_flat = attrs.get('flat', None).chessboardflat
+                raise ValidationError({'flat': _('Вказана квартира вже прив`язана до шахматки.')})
+            except ObjectDoesNotExist:
+                pass
 
         # checking whether flat's RC equals RC of self.instance
         if attrs.get('flat', None).residential_complex != self.instance.residential_complex:
@@ -617,7 +664,41 @@ class AnnouncementApproveSerializer(ModelSerializer):
         data = super().to_representation(instance)
         data.update(
             {
-                'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'), many=True).data
+                'gallery_photos': PhotoSerializer(instance=instance.gallery.photo_set.all().order_by('sequence_number'),
+                                                  many=True).data
             }
         )
         return data
+
+
+class PromotionSerializer(ModelSerializer):
+    """
+    Serializer for adding promotions to existing
+    announcements by its creators.
+    """
+
+    chessboard_flat = ChessBoardFlatAnnouncementSerializer(read_only=True)
+    promotion_type = PromotionTypeDisplaySerializer(read_only=True)
+
+    class Meta:
+        model = Promotion
+        fields = '__all__'
+
+    def validate(self, attrs):
+        super().validate(attrs)
+
+        if not self.context.get('promotion_type', None):
+            raise ValidationError({'promotion_type': _('Не вказано тип просування.')})
+        if not self.context.get('chessboard_flat', None):
+            raise ValidationError({'chessboard_flat': _('Не вказано оголошення.')})
+
+        return attrs
+
+    def create(self, validated_data):
+        instance = Promotion.objects.create(
+            chessboard_flat=self.context.get('chessboard_flat'),
+            promotion_type=self.context.get('promotion_type'),
+            **validated_data
+        )
+
+        return instance

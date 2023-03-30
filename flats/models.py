@@ -179,7 +179,7 @@ class ChessBoard(models.Model):
 
 class ChessBoardFlat(models.Model):
     residential_complex = models.ForeignKey(ResidentialComplex, on_delete=models.PROTECT)
-    flat = models.ForeignKey(Flat, on_delete=models.PROTECT, blank=True, null=True)
+    flat = models.OneToOneField(Flat, on_delete=models.PROTECT, blank=True, null=True)
     chessboard = models.ForeignKey(ChessBoard, on_delete=models.PROTECT, blank=True, null=True)
     gallery = models.OneToOneField(Gallery, on_delete=models.PROTECT)
     accepted = models.BooleanField(default=False)
@@ -235,6 +235,7 @@ class ChessBoardFlat(models.Model):
     price = models.IntegerField(validators=[MinValueValidator(1)])
     main_photo = models.ImageField(upload_to='chessboard/main_photos/')
     creator = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class PromotionType(models.Model):
@@ -244,8 +245,8 @@ class PromotionType(models.Model):
 
 
 class Promotion(models.Model):
-    chessboard_flat = models.ForeignKey(ChessBoardFlat, on_delete=models.CASCADE)
-    promotion_type = models.ForeignKey(PromotionType, on_delete=models.PROTECT)
+    chessboard_flat = models.OneToOneField(ChessBoardFlat, on_delete=models.CASCADE)
+    promotion_type = models.ForeignKey(PromotionType, on_delete=models.PROTECT, blank=True, null=True)
     logo = models.ImageField(upload_to='promotions/')
     header = models.CharField(max_length=200, null=True)
 
