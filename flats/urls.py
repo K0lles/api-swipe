@@ -19,6 +19,8 @@ router.register(r'chessboards', ChessBoardAPIViewSet, basename='chessboards')
 router.register(r'announcements', ChessBoardFlatAnnouncementAPIViewSet, basename='announcements')
 router.register(r'announcements-approval', ChessBoardFlatApprovingAPIViewSet, basename='announcements-approve')
 router.register(r'announcement-promotion', AnnouncementPromotionAPIViewSet, basename='announcement-promotion')
+router.register(r'favorite-announcements', FavoriteChessBoardFlatAPIViewSet, basename='favorite-announcements')
+router.register(r'favorite-residential-complexes', FavoriteResidentialComplexAPIViewSet, basename='favorite-residential-complexes')
 
 
 urlpatterns = [

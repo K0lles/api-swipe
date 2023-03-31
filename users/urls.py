@@ -7,14 +7,14 @@ from dj_rest_auth.registration.views import RegisterView, VerifyEmailView, Confi
 
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from .views import ConfirmationCongratulationView, UserAPIViewSet, NotaryAPIViewSet, UserResetPasswordConfirmView, \
-    SubscriptionAPIViewSet, UserSubscriptionAPIViewSet
+from .views import *
 
 router = DefaultRouter()
 router.register(r'users', UserAPIViewSet, basename='users')
 router.register(r'notaries', NotaryAPIViewSet, basename='notaries')
 router.register(r'subscriptions', SubscriptionAPIViewSet, basename='subscriptions')
 router.register(r'my/subscription', UserSubscriptionAPIViewSet, basename='user-subscription')
+router.register(r'saved-filters', FilterAPIViewSet, basename='saved-filters')
 
 urlpatterns = [
     path('auth/login/', LoginView.as_view(), name='account_login'),

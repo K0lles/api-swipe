@@ -1,9 +1,7 @@
 from django.views.generic.base import TemplateResponseMixin, View
 from django.utils.translation import gettext_lazy as _
 
-from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.generics import ListCreateAPIView, DestroyAPIView
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
@@ -16,11 +14,9 @@ from drf_spectacular.utils import extend_schema
 from drf_psq import PsqMixin, Rule
 
 from flats.paginators import CustomPageNumberPagination
-from .models import User, Notary, Subscription, UserSubscription
 from .permissions import CustomIsAuthenticated
-from .serializers import UserSerializer, UserAdminSerializer, NotarySerializer, NotaryUpdateSerializer, \
-    AuthPasswordResetConfirmSerializer, SubscriptionSerializer, UserSubscriptionSerializer
-from flats.permissions import IsAdminPermission, IsManagerPermission, IsUserPermission
+from .serializers import *
+from flats.permissions import IsAdminPermission, IsManagerPermission, IsUserPermission, IsOwnerPermission
 
 
 class ConfirmationCongratulationView(TemplateResponseMixin, View):
@@ -31,6 +27,7 @@ class ConfirmationCongratulationView(TemplateResponseMixin, View):
 
 
 class UserResetPasswordConfirmView(PasswordResetConfirmView):
+
     serializer_class = AuthPasswordResetConfirmSerializer
 
     def post(self, request, *args, **kwargs):
@@ -46,6 +43,9 @@ class UserAPIViewSet(PsqMixin,
                      ListCreateAPIView,
                      DestroyAPIView,
                      GenericViewSet):
+    """
+    View for user's part and for blocking users by managers and admins.
+    """
 
     serializer_class = UserSerializer
     permission_classes = [IsAdminPermission]
@@ -132,6 +132,10 @@ class UserAPIViewSet(PsqMixin,
 
 @extend_schema(tags=['Notaries'])
 class NotaryAPIViewSet(PsqMixin, ModelViewSet):
+    """
+    View for creation notaries.
+    """
+
     serializer_class = NotarySerializer
     lookup_url_kwarg = 'notary_pk'
 
@@ -166,6 +170,9 @@ class NotaryAPIViewSet(PsqMixin, ModelViewSet):
 @extend_schema(tags=['Subscription'])
 class SubscriptionAPIViewSet(PsqMixin,
                              ModelViewSet):
+    """
+    View for creation types of subscription.
+    """
 
     serializer_class = SubscriptionSerializer
     pagination_class = CustomPageNumberPagination
@@ -225,3 +232,35 @@ class UserSubscriptionAPIViewSet(PsqMixin,
         obj_to_delete: UserSubscription = self.get_object()
         obj_to_delete.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(tags=['Saved filters'])
+class FilterAPIViewSet(PsqMixin,
+                       ListCreateAPIView,
+                       DestroyAPIView,
+                       GenericViewSet):
+
+    serializer_class = FilterSerializer
+    pagination_class = CustomPageNumberPagination
+
+    psq_rules = {
+        ('list', 'create', 'destroy'): [
+            Rule([IsUserPermission, IsOwnerPermission])
+        ]
+    }
+
+    def get_object(self, *args, **kwargs):
+        try:
+            return SavedFilter.objects.get(pk=self.kwargs.get(self.lookup_field))
+        except SavedFilter.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаний фільтр не існує.')})
+
+    def get_queryset(self):
+        return self.paginate_queryset(SavedFilter.objects.filter(user=self.request.user))
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'user': request.user})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)

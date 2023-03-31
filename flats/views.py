@@ -10,13 +10,14 @@ from rest_framework.generics import ListAPIView, \
     DestroyAPIView
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 
-from drf_spectacular.utils import extend_schema, OpenApiParameter, extend_schema_serializer, inline_serializer, \
-    OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiParameter, inline_serializer
 
 from django.utils.translation import gettext_lazy as _
+from django_filters.rest_framework import DjangoFilterBackend
 
 from drf_psq import Rule, PsqMixin
 
+from .filters import AnnouncementsFilterSet
 from .paginators import CustomPageNumberPagination
 from .permissions import *
 from .serializers import *
@@ -124,7 +125,8 @@ class ResidentialComplexAPIViewSet(PsqMixin,
                                    GenericViewSet):
     serializer_class = ResidentialComplexSerializer
     pagination_class = CustomPageNumberPagination
-    http_method_names = ['get', 'post', 'put', 'delete']
+    http_method_names = ['get', 'post', 'patch', 'delete']
+    filter_backends = (DjangoFilterBackend,)
 
     psq_rules = {
         ('list',): [
@@ -208,7 +210,7 @@ class ResidentialComplexAPIViewSet(PsqMixin,
         serializer = self.get_serializer(instance=residential_complexes)
         return Response(data=serializer.data, status=status.HTTP_200_OK)
 
-    @action(methods=['PUT'], detail=False, url_name='updating-complex', url_path='my/update')
+    @action(methods=['PATCH'], detail=False, url_name='updating-complex', url_path='my/update')
     def update_complex(self, request, *args, **kwargs):
         residential_complex = self.get_own_obj()
         serializer = self.get_serializer(data=request.data, instance=residential_complex, partial=True,
@@ -905,7 +907,6 @@ class FlatAPIViewSet(PsqMixin,
 
     @action(methods=['POST'], detail=False, url_path='my/create')
     def my_flats_create(self, request, *args, **kwargs):
-        print(request.data)
         residential_complex = self.get_residential_complex()
         serializer = self.get_serializer(data=request.data, context={'residential_complex': residential_complex})
         if serializer.is_valid():
@@ -1097,9 +1098,11 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
     serializer_class = ChessBoardFlatAnnouncementSerializer
     http_method_names = ['get', 'post', 'patch', 'delete']
     pagination_class = CustomPageNumberPagination
+    filter_backends = (DjangoFilterBackend,)
+    filterset_class = AnnouncementsFilterSet
 
     psq_rules = {
-        ('list', 'destroy'): [
+        'destroy': [
             Rule([IsAdminPermission], ChessBoardFlatAnnouncementListSerializer),
             Rule([IsManagerPermission], ChessBoardFlatAnnouncementListSerializer)
         ],
@@ -1107,7 +1110,10 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
             Rule([IsUserPermission, IsCreatorPermission], ChessBoardFlatAnnouncementSerializer),
             Rule([IsAdminPermission | IsManagerPermission], ChessBoardFlatAnnouncementSerializer)
         ],
-        ('create_announcement',): [
+        'list': [
+            Rule([IsUserPermission], ChessBoardFlatAnnouncementListSerializer)
+        ],
+        'create_announcement': [
             Rule([IsUserPermission])
         ],
         'list_own_announcements': [
@@ -1119,8 +1125,12 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
     }
 
     def get_queryset(self):
-        queryset = ChessBoardFlat.objects.select_related('residential_complex', 'creator').all().order_by('creator')
-        return self.paginate_queryset(queryset)
+        queryset = ChessBoardFlat.objects\
+            .select_related('residential_complex', 'creator', 'promotion__promotion_type')\
+            .filter(accepted=True)\
+            .order_by('promotion__promotion_type__efficiency', 'created_at')
+        filterset = self.filterset_class(data=self.request.query_params, queryset=queryset, request=self.request)
+        return self.paginate_queryset(filterset.qs)
 
     def get_object(self, *args, **kwargs):
         try:
@@ -1145,6 +1155,26 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
             obj.delete()
         except ProtectedError:
             raise ValidationError({'detail': _('Видалити об`яву не вдалося.')})
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='house_status', type=str),
+            OpenApiParameter(name='district', type=str),
+            OpenApiParameter(name='micro_district', type=str),
+            OpenApiParameter(name='room_amount', type=int),
+            OpenApiParameter(name='price_from', type=int),
+            OpenApiParameter(name='price_to', type=int),
+            OpenApiParameter(name='square_from', type=int),
+            OpenApiParameter(name='square_to', type=int),
+            OpenApiParameter(name='purpose', type=str),
+            OpenApiParameter(name='payment_option', type=str),
+            OpenApiParameter(name='housing_condition', type=str)
+        ]
+    )
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.paginate_queryset(self.get_queryset()),
+                                         many=True)
+        return self.get_paginated_response(serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
         """
@@ -1388,4 +1418,84 @@ class AnnouncementPromotionAPIViewSet(PsqMixin,
         chessboard_flat = self.get_chessboard_flat_object()
         chessboard_flat.promotion.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(tags=['Favorite Announcements'])
+class FavoriteChessBoardFlatAPIViewSet(PsqMixin,
+                                       ListCreateAPIView,
+                                       DestroyAPIView,
+                                       GenericViewSet):
+
+    serializer_class = FavoriteChessBoardFlatSerializer
+    pagination_class = CustomPageNumberPagination
+
+    psq_rules = {
+        ('list', 'create', 'destroy') : [
+            Rule([IsUserPermission, IsOwnerPermission])
+        ]
+    }
+
+    def get_object(self, *args, **kwargs):
+        try:
+            return Favorite.objects.get(pk=self.kwargs.get(self.lookup_field))
+        except Favorite.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаного улюбленого оголошення не існує.')})
+
+    def get_queryset(self):
+        return self.paginate_queryset(Favorite.objects.filter(user=self.request.user, chessboard_flat__isnull=False))
+
+    @extend_schema(
+        request=inline_serializer(
+            name='Favorite Announcement request',
+            fields={
+                'chessboard_flat': IntegerField()
+            }
+        )
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'user': request.user})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(tags=['Favorite Residential Complexes'])
+class FavoriteResidentialComplexAPIViewSet(PsqMixin,
+                                           ListCreateAPIView,
+                                           DestroyAPIView,
+                                           GenericViewSet):
+
+    serializer_class = FavoriteResidentialComplexSerializer
+    pagination_class = CustomPageNumberPagination
+
+    psq_rules = {
+        ('list', 'create', 'destroy') : [
+            Rule([IsUserPermission, IsOwnerPermission])
+        ]
+    }
+
+    def get_object(self, *args, **kwargs):
+        try:
+            return Favorite.objects.get(pk=self.kwargs.get(self.lookup_field))
+        except Favorite.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаного улюбленого ЖК не існує.')})
+
+    def get_queryset(self):
+        return self.paginate_queryset(Favorite.objects.filter(user=self.request.user, residential_complex__isnull=False))
+
+    @extend_schema(
+        request=inline_serializer(
+            name='Favorite RS request',
+            fields={
+                'residential_complex': IntegerField()
+            }
+        )
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'user': request.user})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data=serializer.data, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

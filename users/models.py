@@ -101,7 +101,7 @@ class SavedFilter(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
 
     class HouseType(models.TextChoices):
-        all = ('all', 'Всі')
+        all = ('', 'Всі')
         secondary_market = ('secondary-market', 'Вторинний ринок')
         many_floors = ('many-floors', 'Багатоповерхівка')
         cottage = ('cottage', 'Котедж')

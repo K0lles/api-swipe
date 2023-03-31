@@ -392,7 +392,6 @@ class FlatBuilderSerializer(ModelSerializer):
         return instance
 
     def to_internal_value(self, data):
-        print(data)
         return super().to_internal_value(data)
 
     def to_representation(self, instance: Flat):
@@ -552,10 +551,11 @@ class ChessBoardFlatAnnouncementSerializer(ModelSerializer):
     accepted = BooleanField(read_only=True)
     gallery_photos = PhotoSerializer(required=False, many=True)
     promotion = PromotionTypeDisplaySerializer(source='promotion.promotion_type', read_only=True)
+    chessboard = ChessBoardListSerializer(read_only=True)
 
     class Meta:
         model = ChessBoardFlat
-        exclude = ['flat', 'chessboard', 'gallery']
+        exclude = ['flat', 'gallery']
 
     def create(self, validated_data):
         gallery_photos = validated_data.pop('gallery_photos', None)
@@ -702,3 +702,65 @@ class PromotionSerializer(ModelSerializer):
         )
 
         return instance
+
+
+class FavoriteChessBoardFlatSerializer(ModelSerializer):
+    chessboard_flat = ChessBoardFlatAnnouncementListSerializer()
+
+    class Meta:
+        model = Favorite
+        fields = ['id', 'chessboard_flat']
+
+    def create(self, validated_data):
+        instance = Favorite.objects.create(
+            **self.context,
+            **validated_data
+        )
+
+        return instance
+
+    def to_internal_value(self, data):
+        ret = {}
+        chessboard_flat_pk = data.get('chessboard_flat', None)
+        error = ValidationError({'chessboard_flat': _('Неправильно вказане оголошення.')})
+
+        if not isinstance(chessboard_flat_pk, int):
+            raise error
+
+        try:
+            ret['chessboard_flat'] = ChessBoardFlat.objects.get(pk=chessboard_flat_pk)
+        except ChessBoardFlat.DoesNotExist:
+            raise error
+
+        return ret
+
+
+class FavoriteResidentialComplexSerializer(ModelSerializer):
+    residential_complex = ResidentialComplexDisplaySerializer()
+
+    class Meta:
+        model = Favorite
+        fields = ['id', 'residential_complex']
+
+    def create(self, validated_data):
+        instance = Favorite.objects.create(
+            **self.context,
+            **validated_data
+        )
+
+        return instance
+
+    def to_internal_value(self, data):
+        ret = {}
+        residential_complex_pk = data.get('residential_complex', None)
+        error = ValidationError({'residential_complex': _('Неправильно вказаний ЖК.')})
+
+        if not isinstance(residential_complex_pk, int):
+            raise error
+
+        try:
+            ret['residential_complex'] = ResidentialComplex.objects.get(pk=residential_complex_pk)
+        except ResidentialComplex.DoesNotExist:
+            raise error
+
+        return ret

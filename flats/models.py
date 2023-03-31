@@ -259,5 +259,5 @@ class Promotion(models.Model):
 
 class Favorite(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    chessboard_flat = models.ForeignKey(ChessBoardFlat, on_delete=models.CASCADE)
-    residential_complex = models.ForeignKey(ResidentialComplex, on_delete=models.CASCADE)
+    chessboard_flat = models.ForeignKey(ChessBoardFlat, on_delete=models.CASCADE, blank=True, null=True)
+    residential_complex = models.ForeignKey(ResidentialComplex, on_delete=models.CASCADE, blank=True, null=True)

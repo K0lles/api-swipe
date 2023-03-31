@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from allauth.account.models import EmailAddress
 from django.utils import timezone
@@ -14,7 +14,7 @@ from dj_rest_auth.serializers import LoginSerializer, PasswordResetConfirmSerial
 
 from users.fields import RoleField
 from users.forms import CustomSetPasswordForm
-from users.models import User, Role, Notary, Subscription, UserSubscription
+from users.models import User, Role, Notary, Subscription, UserSubscription, SavedFilter
 
 
 class AuthLoginSerializer(LoginSerializer):
@@ -195,3 +195,18 @@ class UserSubscriptionSerializer(ModelSerializer):
             **validated_data
         )
         return subscription
+
+
+class FilterSerializer(ModelSerializer):
+
+    class Meta:
+        model = SavedFilter
+        exclude = ['user']
+
+    def create(self, validated_data):
+        instance = SavedFilter.objects.create(
+            **self.context,
+            **validated_data
+        )
+
+        return instance
