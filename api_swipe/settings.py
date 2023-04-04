@@ -245,3 +245,5 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute=3, hour=0)
     }
 }
+
+SECRET_PASSWORD_KEY = env('SECRET_PASSWORD_KEY')

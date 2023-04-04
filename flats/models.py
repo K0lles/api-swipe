@@ -185,9 +185,6 @@ class ChessBoardFlat(models.Model):
     accepted = models.BooleanField(default=False)
     address = models.TextField()
 
-    class FoundationDocumentType(models.TextChoices):
-        property = ('property', 'Власність')
-
     class PurposeChoice(models.TextChoices):
         apartments = ('apartments', 'Квартири')
         # TODO: are these purposes equal to purposes in ResidentialComplex model?
@@ -236,6 +233,14 @@ class ChessBoardFlat(models.Model):
     main_photo = models.ImageField(upload_to='chessboard/main_photos/')
     creator = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class RejectionOptions(models.TextChoices):
+        incorrect_price = ('incorrect-price', 'Некоректна ціна')
+        incorrect_photo = ('incorrect-photo', 'Некоректне фото')
+        incorrect_description = ('incorrect-description', 'Некоректний опис')
+
+    rejection_reason = models.CharField(max_length=25, choices=RejectionOptions.choices, null=True)
+    called_off = models.BooleanField(default=False)
 
 
 class PromotionType(models.Model):

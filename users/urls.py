@@ -15,6 +15,7 @@ router.register(r'notaries', NotaryAPIViewSet, basename='notaries')
 router.register(r'subscriptions', SubscriptionAPIViewSet, basename='subscriptions')
 router.register(r'my/subscription', UserSubscriptionAPIViewSet, basename='user-subscription')
 router.register(r'saved-filters', FilterAPIViewSet, basename='saved-filters')
+router.register(r'messages', MessageAPIViewSet, basename='messages')
 
 urlpatterns = [
     path('auth/login/', LoginView.as_view(), name='account_login'),

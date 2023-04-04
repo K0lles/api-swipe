@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.views.generic.base import TemplateResponseMixin, View
 from django.utils.translation import gettext_lazy as _
 
@@ -53,7 +54,8 @@ class UserAPIViewSet(PsqMixin,
     psq_rules = {
         ('list', 'block'): [Rule([IsManagerPermission | IsAdminPermission], UserAdminSerializer)],
         ('retrieve_self', 'delete_own_account', 'partial_update_self'): [Rule([IsAuthenticated], UserSerializer)],
-        'create': [Rule([IsAdminPermission], UserAdminSerializer)]
+        'create': [Rule([IsAdminPermission], UserAdminSerializer)],
+        'managers_list': [Rule([CustomIsAuthenticated], AuthRegistrationSerializer)]
     }
 
     def get_queryset(self):
@@ -64,6 +66,10 @@ class UserAPIViewSet(PsqMixin,
             return User.objects.get(pk=self.kwargs.get('pk'))
         except User.DoesNotExist:
             raise ValidationError({'detail': _('Такого користувача не існує.')})
+
+    def get_managers_queryset(self):
+        queryset = User.objects.filter(role__role__in=['admin', 'manager'])
+        return self.paginate_queryset(queryset)
 
     def list(self, request, *args, **kwargs):
         serializer = self.get_serializer(instance=self.get_queryset(), many=True)
@@ -81,8 +87,10 @@ class UserAPIViewSet(PsqMixin,
             return Response(data=serializer.data, status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['PUT'], detail=False, url_path='me/update', url_name='partial-update-user')
+    @action(methods=['PATCH'], detail=False, url_path='me/update', url_name='partial-update-user')
     def partial_update_self(self, request, *args, **kwargs):
+        if self.request.user.email == 'superuser@gmail.com' and settings.SECRET_PASSWORD_KEY not in request.data.get('password'):
+            return Response(data={'detail': _('Ви не маєте права змінити інформацію адміністратору.')}, status=status.HTTP_403_FORBIDDEN)
         serializer = self.get_serializer(data=request.data, instance=self.request.user, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -91,6 +99,8 @@ class UserAPIViewSet(PsqMixin,
 
     def destroy(self, request, *args, **kwargs):
         user = self.get_object()
+        if user.email == 'superuser@gmail.com':
+            return Response({'detail': _('Ви не можете видалити адміністратора.')}, status=status.HTTP_403_FORBIDDEN)
         try:
             user.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -120,14 +130,21 @@ class UserAPIViewSet(PsqMixin,
     @action(detail=False, methods=['DELETE'], url_path='me/delete', url_name='delete-own-account')
     def delete_own_account(self, request, *args, **kwargs):
         user = request.user
-        user.delete()
+        if user.email == 'superuser@gmail.com':
+            return Response({'detail': _('Ви не можете видалити адміністратора.')}, status=status.HTTP_403_FORBIDDEN)
         try:
+            user.delete()
             response = Response(data={'detail': _('Your account successfully deleted')}, status=status.HTTP_200_OK)
             response.delete_cookie('access_token')
             response.delete_cookie('refresh_token')
         except Exception as e:
             return Response(data={'detail': _('Щось пішло не так.')}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return response
+
+    @action(methods=['GET'], detail=False, url_path='managers')
+    def managers_list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.get_managers_queryset(), many=True)
+        return self.get_paginated_response(serializer.data)
 
 
 @extend_schema(tags=['Notaries'])
@@ -137,12 +154,13 @@ class NotaryAPIViewSet(PsqMixin, ModelViewSet):
     """
 
     serializer_class = NotarySerializer
+    http_method_names = ['get', 'post', 'patch', 'delete']
     lookup_url_kwarg = 'notary_pk'
 
     psq_rules = {
         ('list', 'create', 'retrieve', 'destroy'):
             [Rule([IsAdminPermission]), Rule([IsManagerPermission])],
-        ('update',):
+        ('partial_update',):
             [Rule([IsAdminPermission], NotaryUpdateSerializer), Rule([IsManagerPermission], NotaryUpdateSerializer)]
     }
 
@@ -155,16 +173,12 @@ class NotaryAPIViewSet(PsqMixin, ModelViewSet):
         except Notary.DoesNotExist:
             raise ValidationError({'detail': _('Вказаного нотаріуса не існує.')})
 
-    def update(self, request, *args, **kwargs):
+    def partial_update(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(data=serializer.data, status=status.HTTP_200_OK)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def partial_update(self, request, *args, **kwargs):
-        raise ValidationError({'detail': _('Метод PATCH не підтримується. Використовуйте метод PUT.')},
-                              code=status.HTTP_404_NOT_FOUND)
 
 
 @extend_schema(tags=['Subscription'])
@@ -175,13 +189,14 @@ class SubscriptionAPIViewSet(PsqMixin,
     """
 
     serializer_class = SubscriptionSerializer
+    http_method_names = ['get', 'post', 'patch', 'delete']
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
         ('list', 'retrieve'): [
             Rule([CustomIsAuthenticated])
         ],
-        ('create', 'update', 'partial_update', 'destroy'): [
+        ('create', 'partial_update', 'destroy'): [
             Rule([IsAdminPermission]),
             Rule([IsManagerPermission])
         ]
@@ -264,3 +279,87 @@ class FilterAPIViewSet(PsqMixin,
             serializer.save()
             return Response(data=serializer.data, status=status.HTTP_200_OK)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(tags=['Messages'])
+class MessageAPIViewSet(PsqMixin,
+                        GenericViewSet):
+
+    serializer_class = MessageSerializer
+
+    psq_rules = {
+        'send_to_manager': [
+            Rule([IsUserPermission])
+        ],
+        'send_to_user': [
+            Rule([IsAdminPermission | IsManagerPermission])
+        ],
+        ('retrieve',): [
+            Rule([IsManagerPermission | IsAdminPermission | IsUserPermission], MessageListSerializer)
+        ]
+    }
+
+    def get_object(self, *args, **kwargs):
+        pass
+
+    def get_queryset(self):
+        filtering_condition = None
+
+        if self.request.user.role.role in ['admin', 'manager']:
+            filtering_condition = Q(receiver=self.request.user, sender=self.get_user_object())
+            filtering_condition.add(Q(receiver=self.get_user_object(), sender=self.request.user), Q.OR)
+
+        elif self.request.user.role.role == 'user':
+            filtering_condition = Q(receiver=self.request.user, sender=self.get_manager_object())
+            filtering_condition.add(Q(receiver=self.get_manager_object(), sender=self.request.user), Q.OR)
+
+        queryset = Message.objects \
+            .filter(filtering_condition).order_by('created_at')
+        return self.paginate_queryset(queryset)
+
+    def get_manager_object(self):
+        try:
+            return User.objects.get(pk=self.kwargs.get(self.lookup_field), role__role__in=['manager', 'admin'])
+        except User.DoesNotExist:
+            raise ValidationError({'detail': _('Менеджера не існує.')})
+
+    def get_user_object(self):
+        try:
+            return User.objects.get(pk=self.kwargs.get(self.lookup_field), role__role='user')
+        except User.DoesNotExist:
+            raise ValidationError({'detail': _('Користувача не існує.')})
+
+    def retrieve(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.get_queryset(), many=True)
+        return self.get_paginated_response(serializer.data)
+
+    def get_message(self):
+        try:
+            return Message.objects.get(pk=self.kwargs.get(self.lookup_field),
+                                       sender=self.request.user)
+        except Message.DoesNotExist:
+            raise ValidationError({'detail': _('Вказаного повідомлення не існує або ви не маєте права його видалити.')})
+
+    @action(methods=['POST'], detail=True, url_path='send')
+    def send_to_manager(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'sender': request.user,
+                                                                     'receiver': self.get_manager_object()})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data={'detail': _('Повідомлення успішно надіслано.')}, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['POST'], detail=True, url_path='manager/send')
+    def send_to_user(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={'sender': request.user,
+                                                                     'receiver': self.get_user_object()})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(data={'detail': _('Повідомлення успішно надіслано.')}, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['DELETE'], detail=True, url_path='delete')
+    def delete_message(self, request, *args, **kwargs):
+        obj = self.get_message()
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

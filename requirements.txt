@@ -31,6 +31,7 @@ djangorestframework-simplejwt==5.2.2
 drf-extra-fields==3.4.1
 drf-psq==1.1.0
 drf-spectacular==0.26.0
+Faker==18.3.2
 idna==3.4
 inflection==0.5.1
 itypes==1.2.0

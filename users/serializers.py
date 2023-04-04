@@ -12,9 +12,10 @@ from django.utils.translation import gettext_lazy as _
 
 from dj_rest_auth.serializers import LoginSerializer, PasswordResetConfirmSerializer, PasswordChangeSerializer
 
+from api_swipe import settings
 from users.fields import RoleField
 from users.forms import CustomSetPasswordForm
-from users.models import User, Role, Notary, Subscription, UserSubscription, SavedFilter
+from users.models import User, Role, Notary, Subscription, UserSubscription, SavedFilter, Message
 
 
 class AuthLoginSerializer(LoginSerializer):
@@ -24,7 +25,8 @@ class AuthLoginSerializer(LoginSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         if attrs.get('user') and attrs.get('user').is_blocked:
-            raise ValidationError({'detail': _('Вас заблоковано. Зв`яжіться із адміністратором.')}, code=status.HTTP_403_FORBIDDEN)
+            raise ValidationError({'detail': _('Вас заблоковано. Зв`яжіться із адміністратором.')},
+                                  code=status.HTTP_403_FORBIDDEN)
         return attrs
 
 
@@ -33,7 +35,7 @@ class AuthRegistrationSerializer(ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['email', 'password', 'name', 'surname']
+        fields = ['id', 'email', 'password', 'name', 'surname']
 
     def save(self, *args, **kwargs):
         return self.create(self.validated_data)
@@ -130,7 +132,6 @@ class UserAdminSerializer(ModelSerializer):
 
 
 class NotarySerializer(ModelSerializer):
-
     class Meta:
         model = Notary
         fields = '__all__'
@@ -143,7 +144,6 @@ class NotarySerializer(ModelSerializer):
 
 
 class NotaryUpdateSerializer(ModelSerializer):
-
     class Meta:
         model = Notary
         fields = '__all__'
@@ -161,7 +161,6 @@ class NotaryUpdateSerializer(ModelSerializer):
 
 
 class SubscriptionSerializer(ModelSerializer):
-
     class Meta:
         model = Subscription
         fields = '__all__'
@@ -198,7 +197,6 @@ class UserSubscriptionSerializer(ModelSerializer):
 
 
 class FilterSerializer(ModelSerializer):
-
     class Meta:
         model = SavedFilter
         exclude = ['user']
@@ -210,3 +208,46 @@ class FilterSerializer(ModelSerializer):
         )
 
         return instance
+
+
+class MessageSerializer(ModelSerializer):
+    class Meta:
+        model = Message
+        fields = ['text']
+
+    def validate(self, attrs):
+        super().validate(attrs)
+
+        if not self.context.get('sender', None):
+            raise ValidationError({'sender': _('Неправильно вказано користувача.')})
+
+        if not self.context.get('receiver', None):
+            raise ValidationError({'receiver': _('Неправильно вказано користувача.')})
+
+        if not \
+                (self.context.get('receiver').role.role in ['admin', 'manager']
+                 and self.context.get('sender').role.role == 'user') \
+                and \
+                not (self.context.get('receiver').role.role == 'user'
+                     and self.context.get('sender').role.role in ['admin', 'manager']):
+            raise ValidationError(
+                {'detail': _('Ви не можете надсилати повідомлення комусь, окрім користувачів та менеджерів.')})
+
+        return attrs
+
+    def create(self, validated_data):
+        instance = Message.objects.create(
+            **self.context,
+            **validated_data
+        )
+
+        return instance
+
+
+class MessageListSerializer(ModelSerializer):
+    sender = AuthRegistrationSerializer()
+    receiver = AuthRegistrationSerializer()
+
+    class Meta:
+        model = Message
+        fields = '__all__'

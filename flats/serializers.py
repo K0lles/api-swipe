@@ -489,13 +489,17 @@ class ChessBoardSerializer(ModelSerializer):
 
 
 class ChessBoardFlatAnnouncementListSerializer(ModelSerializer):
+    """
+    Serializer for list of announcements showed to all users
+    """
     residential_complex = ResidentialComplexDisplaySerializer()
     creator = AuthRegistrationSerializer()
     chessboard = ChessBoardListSerializer()
 
     class Meta:
         model = ChessBoardFlat
-        fields = ['id', 'residential_complex', 'creator', 'accepted', 'main_photo', 'chessboard']
+        fields = ['id', 'residential_complex', 'creator', 'accepted', 'main_photo', 'chessboard',
+                  'rejection_reason', 'called_off']
 
 
 class PromotionTypeDisplaySerializer(ModelSerializer):
@@ -669,6 +673,28 @@ class AnnouncementApproveSerializer(ModelSerializer):
             }
         )
         return data
+
+
+class CallOffAnnouncementSerializer(ModelSerializer):
+
+    class Meta:
+        model = ChessBoardFlat
+        fields = ['rejection_reason', 'called_off']
+
+    def validate(self, attrs):
+        super().validate(attrs)
+
+        if not attrs.get('called_off'):
+            attrs['rejection_reason'] = None
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        for field in validated_data:
+            setattr(instance, field, validated_data.get(field))
+
+        instance.save()
+        return instance
 
 
 class PromotionSerializer(ModelSerializer):

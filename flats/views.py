@@ -1,4 +1,4 @@
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, Q
 from rest_framework.decorators import action
 from rest_framework.fields import URLField
 from rest_framework.response import Response
@@ -1102,34 +1102,40 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
     filterset_class = AnnouncementsFilterSet
 
     psq_rules = {
-        'destroy': [
+        ('destroy', 'list_all_announcements'): [
             Rule([IsAdminPermission], ChessBoardFlatAnnouncementListSerializer),
             Rule([IsManagerPermission], ChessBoardFlatAnnouncementListSerializer)
         ],
         ('retrieve',): [
-            Rule([IsUserPermission, IsCreatorPermission], ChessBoardFlatAnnouncementSerializer),
+            Rule([IsUserPermission], ChessBoardFlatAnnouncementSerializer),
             Rule([IsAdminPermission | IsManagerPermission], ChessBoardFlatAnnouncementSerializer)
         ],
         'list': [
-            Rule([IsUserPermission], ChessBoardFlatAnnouncementListSerializer)
+            Rule([IsUserPermission | IsAdminPermission | IsManagerPermission | IsBuilderPermission],
+                 ChessBoardFlatAnnouncementListSerializer)
         ],
         'create_announcement': [
             Rule([IsUserPermission])
         ],
-        'list_own_announcements': [
+        ('list_own_announcements',): [
             Rule([IsUserPermission], ChessBoardFlatAnnouncementListSerializer)
         ],
         ('update_own_announcement', 'destroy_own_announcement'): [
             Rule([IsUserPermission, IsCreatorPermission], ChessBoardFlatAnnouncementSerializer)
+        ],
+        'call_off_announcement': [
+            Rule([IsAdminPermission | IsManagerPermission], CallOffAnnouncementSerializer)
         ]
     }
 
     def get_queryset(self):
         queryset = ChessBoardFlat.objects\
             .select_related('residential_complex', 'creator', 'promotion__promotion_type')\
-            .filter(accepted=True)\
+            .filter(accepted=True, called_off=False)\
             .order_by('promotion__promotion_type__efficiency', 'created_at')
+        print(f'before filtering: {queryset}')
         filterset = self.filterset_class(data=self.request.query_params, queryset=queryset, request=self.request)
+        print(f'after filtering: {filterset.qs}')
         return self.paginate_queryset(filterset.qs)
 
     def get_object(self, *args, **kwargs):
@@ -1138,7 +1144,6 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
                 .select_related('creator') \
                 .prefetch_related('gallery__photo_set') \
                 .get(pk=self.kwargs.get(self.lookup_field))
-            self.check_object_permissions(self.request, self.obj)
             return self.obj
         except ChessBoardFlat.DoesNotExist:
             raise ValidationError({'detail': _('Вказаної об`яви не існує.')})
@@ -1148,6 +1153,10 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
             .prefetch_related('gallery__photo_set') \
             .select_related('creator') \
             .filter(creator=self.request.user)
+        return self.paginate_queryset(queryset)
+
+    def get_all_queryset(self):
+        queryset = ChessBoardFlat.objects.all().order_by('created_at')
         return self.paginate_queryset(queryset)
 
     def destroy_object(self, obj):
@@ -1192,6 +1201,11 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
         self.destroy_object(obj)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(methods=['GET'], detail=False, url_path='all')
+    def list_all_announcements(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.get_all_queryset(), many=True)
+        return self.get_paginated_response(serializer.data)
+
     @extend_schema(
         responses={
             '200': ChessBoardFlatAnnouncementListSerializer(many=True)
@@ -1224,6 +1238,16 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
         self.destroy_object(obj)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(methods=['PATCH'], detail=True, url_path='call-off')
+    def call_off_announcement(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            if not serializer.instance.called_off:
+                return Response(data={'detail': _('Об`яву успішно відновлено.')}, status=status.HTTP_200_OK)
+            return Response(data={'detail': _('Об`яву успішно відхилено.')}, status=status.HTTP_200_OK)
+        return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 @extend_schema(tags=['Announcement Approval'])
 class ChessBoardFlatApprovingAPIViewSet(PsqMixin,
@@ -1238,7 +1262,7 @@ class ChessBoardFlatApprovingAPIViewSet(PsqMixin,
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
-        ('list', 'requests'): [
+        ('list', 'requests', 'list_called_off_announcements'): [
             Rule([IsBuilderPermission], AnnouncementListSerializer)
         ],
         ('approve_announcement', 'announcement_detail', 'delete_announcement'): [
@@ -1249,12 +1273,19 @@ class ChessBoardFlatApprovingAPIViewSet(PsqMixin,
     def get_queryset(self):
         queryset = ChessBoardFlat.objects \
             .select_related('residential_complex', 'residential_complex__owner') \
-            .filter(residential_complex__owner=self.request.user, accepted=True)
+            .filter(residential_complex__owner=self.request.user, accepted=True, called_off=False)
         return self.paginate_queryset(queryset)
 
     def get_unaccepted_queryset(self):
+        unaccepted_conditions = Q(accepted=False)
+        unaccepted_conditions.add(Q(called_off=True), Q.OR)
+        queryset = ChessBoardFlat.objects.filter(unaccepted_conditions,
+                                                 residential_complex__owner=self.request.user)
+        return self.paginate_queryset(queryset)
+
+    def get_called_off_queryset(self):
         queryset = ChessBoardFlat.objects.filter(residential_complex__owner=self.request.user,
-                                                 accepted=False)
+                                                 called_off=True)
         return self.paginate_queryset(queryset)
 
     def get_object(self, *args, **kwargs):
@@ -1289,6 +1320,11 @@ class ChessBoardFlatApprovingAPIViewSet(PsqMixin,
         serializer = self.get_serializer(instance=self.get_unaccepted_queryset(),
                                          many=True)
         return self.get_paginated_response(data=serializer.data)
+
+    @action(methods=['GET'], detail=False, url_path='called-off')
+    def list_called_off_announcements(self, request, *args, **kwargs):
+        serializer = self.get_serializer(instance=self.get_called_off_queryset(), many=True)
+        return self.get_paginated_response(serializer.data)
 
     @action(methods=['GET'], detail=True, url_path='detail')
     def announcement_detail(self, request, *args, **kwargs):

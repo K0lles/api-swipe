@@ -91,8 +91,8 @@ class UserSubscription(models.Model):
 
 
 class Message(models.Model):
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='user', blank=True, null=True)
-    manager = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='manager', blank=True, null=True)
+    sender = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='sender', blank=True, null=True)
+    receiver = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='receiver', blank=True, null=True)
     text = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
