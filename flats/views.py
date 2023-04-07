@@ -57,7 +57,7 @@ class CorpsAPIViewSet(PsqMixin,
 
     def get_queryset(self):
         queryset = Corps.objects.select_related('residential_complex').all().order_by('name')
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def destroy_object(self, obj: Corps):
         try:
@@ -72,7 +72,7 @@ class CorpsAPIViewSet(PsqMixin,
             )
 
     def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_queryset(), many=True)
+        serializer = self.get_serializer(instance=self.paginate_queryset(self.get_queryset()), many=True)
         return self.get_paginated_response(data=serializer.data)
 
     @extend_schema(
@@ -126,7 +126,6 @@ class ResidentialComplexAPIViewSet(PsqMixin,
     serializer_class = ResidentialComplexSerializer
     pagination_class = CustomPageNumberPagination
     http_method_names = ['get', 'post', 'patch', 'delete']
-    filter_backends = (DjangoFilterBackend,)
 
     psq_rules = {
         ('list',): [
@@ -157,7 +156,7 @@ class ResidentialComplexAPIViewSet(PsqMixin,
             .prefetch_related('gallery__photo_set') \
             .select_related('owner') \
             .all()
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_object(self, *args, **kwargs):
         try:
@@ -251,11 +250,7 @@ class AdditionAPIViewSet(PsqMixin, ModelViewSet):
 
     def get_queryset(self):
         queryset = Addition.objects.all()
-        return self.paginate_queryset(queryset)
-
-    def get_own_residential_additions_queryset(self):
-        queryset = AdditionInComplex.objects.filter(residential_complex__owner=self.request.user)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_my_residential_complex(self):
         try:
@@ -297,10 +292,10 @@ class AdditionInComplexAPIViewSet(PsqMixin,
     }
 
     def get_queryset(self):
-        return self.paginate_queryset(AdditionInComplex.objects.all())
+        return AdditionInComplex.objects.all()
 
     def get_own_queryset(self):
-        return self.paginate_queryset(AdditionInComplex.objects.filter(residential_complex__owner=self.request.user))
+        return AdditionInComplex.objects.filter(residential_complex__owner=self.request.user)
 
     def get_object(self, *args, **kwargs):
         try:
@@ -315,12 +310,12 @@ class AdditionInComplexAPIViewSet(PsqMixin,
             raise ValidationError({'detail': _('На вас не зареєстровано жодного ЖК.')})
 
     def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_queryset(), many=True)
+        serializer = self.get_serializer(instance=self.paginate_queryset(self.get_queryset()), many=True)
         return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['GET'], detail=False, url_path='my')
     def residential_additions_list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_own_queryset(),
+        serializer = self.get_serializer(instance=self.paginate_queryset(self.get_own_queryset()),
                                          many=True)
         return self.get_paginated_response(data=serializer.data)
 
@@ -376,11 +371,11 @@ class DocumentAPIViewSet(PsqMixin,
 
     def get_queryset(self):
         queryset = Document.objects.all()
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_own_documents_queryset(self):
         queryset = Document.objects.filter(residential_complex__owner=self.request.user)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_object(self):
         try:
@@ -402,7 +397,7 @@ class DocumentAPIViewSet(PsqMixin,
         return Response(data=serializer.data, status=status.HTTP_200_OK)
 
     def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
+        queryset = self.paginate_queryset(self.get_queryset())
         serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(serializer.data)
 
@@ -437,7 +432,8 @@ class DocumentAPIViewSet(PsqMixin,
     )
     @action(methods=['GET'], detail=False, url_path='my')
     def my_documents(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_own_documents_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_own_documents_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
@@ -489,14 +485,15 @@ class NewsAPIViewSet(PsqMixin,
 
     def get_queryset(self):
         queryset = News.objects.all()
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_own_news_queryset(self):
         queryset = News.objects.filter(residential_complex__owner=self.request.user)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
     def create(self, request, *args, **kwargs):
@@ -535,7 +532,8 @@ class NewsAPIViewSet(PsqMixin,
     )
     @action(methods=['GET'], detail=False, url_path='my')
     def my_news(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_own_news_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_own_news_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
@@ -593,14 +591,15 @@ class SectionAPIViewSet(PsqMixin,
 
     def get_queryset(self):
         queryset = Section.objects.all()
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_own_sections_queryset(self):
         queryset = Section.objects.filter(residential_complex__owner=self.request.user)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
@@ -632,7 +631,8 @@ class SectionAPIViewSet(PsqMixin,
     )
     @action(methods=['GET'], detail=False, url_path='my')
     def sections_list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_own_sections_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_own_sections_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
@@ -737,11 +737,11 @@ class FloorAPIViewSet(PsqMixin,
 
     def get_queryset(self):
         queryset = Floor.objects.all()
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_own_floors_queryset(self):
         queryset = Floor.objects.filter(residential_complex__owner=self.request.user)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def delete_object(self):
         obj = self.get_object()
@@ -754,7 +754,8 @@ class FloorAPIViewSet(PsqMixin,
                 status=status.HTTP_409_CONFLICT)
 
     def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
@@ -776,7 +777,8 @@ class FloorAPIViewSet(PsqMixin,
     )
     @action(methods=['GET'], detail=False, url_path='my')
     def floors_list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_own_floors_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_own_floors_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
@@ -845,18 +847,18 @@ class FlatAPIViewSet(PsqMixin,
             .select_related('corps', 'section', 'floor', 'residential_complex', 'gallery')\
             .prefetch_related('gallery__photo_set')\
             .all()
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_not_bounded_queryset(self):
         queryset = Flat.objects \
             .select_related('chessboardflat', 'corps', 'section', 'floor', 'residential_complex', 'gallery')\
             .prefetch_related('gallery__photo_set') \
             .filter(chessboardflat__isnull=True)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_own_flats_queryset(self):
         queryset = Flat.objects.filter(residential_complex__owner=self.request.user)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def delete_object(self):
         obj = self.get_object()
@@ -869,7 +871,8 @@ class FlatAPIViewSet(PsqMixin,
                 status=status.HTTP_409_CONFLICT)
 
     def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
@@ -897,12 +900,14 @@ class FlatAPIViewSet(PsqMixin,
     )
     @action(methods=['GET'], detail=False, url_path='my')
     def my_flats(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_own_flats_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_own_flats_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['GET'], detail=False, url_path='not-bounded')
     def my_not_bounded_flats(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_not_bounded_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_not_bounded_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='my/create')
@@ -966,7 +971,7 @@ class ChessBoardAPIViewSet(PsqMixin,
     def get_queryset(self):
         queryset = ChessBoard.objects.select_related('corps', 'section')\
             .filter(residential_complex__owner=self.request.user).order_by('-section', 'corps')
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_queryset_by_residential(self, residential_complex):
         """
@@ -976,7 +981,7 @@ class ChessBoardAPIViewSet(PsqMixin,
         """
         queryset = ChessBoard.objects.select_related('corps', 'section')\
             .filter(residential_complex_id=self.request.query_params.get('residential_complex', None)).order_by('corps', 'section')
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def _get_residential_complex_by_id(self):
         """
@@ -1028,7 +1033,8 @@ class ChessBoardAPIViewSet(PsqMixin,
         :param kwargs:
         :return: [ChessBoard]
         """
-        serializer = self.get_serializer(instance=self.get_queryset_by_residential(residential_complex=self._get_residential_complex_by_id()),
+        queryset = self.paginate_queryset(self.get_queryset_by_residential(residential_complex=self._get_residential_complex_by_id()))
+        serializer = self.get_serializer(instance=queryset,
                                          many=True)
         return self.get_paginated_response(serializer.data)
 
@@ -1054,7 +1060,8 @@ class ChessBoardAPIViewSet(PsqMixin,
         :param kwargs:
         :return:
         """
-        serializer = self.get_serializer(instance=self.get_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
@@ -1133,10 +1140,9 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
             .select_related('residential_complex', 'creator', 'promotion__promotion_type')\
             .filter(accepted=True, called_off=False)\
             .order_by('promotion__promotion_type__efficiency', 'created_at')
-        print(f'before filtering: {queryset}')
-        filterset = self.filterset_class(data=self.request.query_params, queryset=queryset, request=self.request)
-        print(f'after filtering: {filterset.qs}')
-        return self.paginate_queryset(filterset.qs)
+        return queryset
+        # filterset = self.filterset_class(data=self.request.query_params, queryset=queryset, request=self.request)
+        # return self.paginate_queryset(filterset.qs)
 
     def get_object(self, *args, **kwargs):
         try:
@@ -1153,11 +1159,11 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
             .prefetch_related('gallery__photo_set') \
             .select_related('creator') \
             .filter(creator=self.request.user)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_all_queryset(self):
         queryset = ChessBoardFlat.objects.all().order_by('created_at')
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def destroy_object(self, obj):
         try:
@@ -1181,7 +1187,8 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
         ]
     )
     def list(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.paginate_queryset(self.get_queryset()),
+        filtered_queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(instance=self.paginate_queryset(filtered_queryset),
                                          many=True)
         return self.get_paginated_response(serializer.data)
 
@@ -1203,7 +1210,8 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
 
     @action(methods=['GET'], detail=False, url_path='all')
     def list_all_announcements(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_all_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_all_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(serializer.data)
 
     @extend_schema(
@@ -1213,7 +1221,8 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
     )
     @action(methods=['GET'], detail=False, url_path='my')
     def list_own_announcements(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_owner_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_owner_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(serializer.data)
 
     @action(methods=['POST'], detail=False, url_path='create')
@@ -1238,6 +1247,15 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
         self.destroy_object(obj)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        request=inline_serializer(
+            name='Call off announcement',
+            fields={
+                'rejection_reason': CharField(required=False),
+                'called_off': BooleanField()
+            }
+        )
+    )
     @action(methods=['PATCH'], detail=True, url_path='call-off')
     def call_off_announcement(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
@@ -1274,19 +1292,19 @@ class ChessBoardFlatApprovingAPIViewSet(PsqMixin,
         queryset = ChessBoardFlat.objects \
             .select_related('residential_complex', 'residential_complex__owner') \
             .filter(residential_complex__owner=self.request.user, accepted=True, called_off=False)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_unaccepted_queryset(self):
         unaccepted_conditions = Q(accepted=False)
         unaccepted_conditions.add(Q(called_off=True), Q.OR)
         queryset = ChessBoardFlat.objects.filter(unaccepted_conditions,
                                                  residential_complex__owner=self.request.user)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_called_off_queryset(self):
         queryset = ChessBoardFlat.objects.filter(residential_complex__owner=self.request.user,
                                                  called_off=True)
-        return self.paginate_queryset(queryset)
+        return queryset
 
     def get_object(self, *args, **kwargs):
         try:
@@ -1317,13 +1335,14 @@ class ChessBoardFlatApprovingAPIViewSet(PsqMixin,
     )
     @action(methods=['GET'], detail=False)
     def requests(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_unaccepted_queryset(),
-                                         many=True)
+        queryset = self.paginate_queryset(self.get_unaccepted_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
     @action(methods=['GET'], detail=False, url_path='called-off')
     def list_called_off_announcements(self, request, *args, **kwargs):
-        serializer = self.get_serializer(instance=self.get_called_off_queryset(), many=True)
+        queryset = self.paginate_queryset(self.get_called_off_queryset())
+        serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(serializer.data)
 
     @action(methods=['GET'], detail=True, url_path='detail')
@@ -1371,8 +1390,7 @@ class PromotionTypeAPIViewSet(PsqMixin,
             raise ValidationError({'detail': _('Такого типу просування не існує.')})
 
     def get_queryset(self):
-        queryset = PromotionType.objects.all()
-        return self.paginate_queryset(queryset)
+        return PromotionType.objects.all()
 
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
@@ -1466,7 +1484,7 @@ class FavoriteChessBoardFlatAPIViewSet(PsqMixin,
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
-        ('list', 'create', 'destroy') : [
+        ('list', 'create', 'destroy'): [
             Rule([IsUserPermission, IsOwnerPermission])
         ]
     }
@@ -1478,7 +1496,7 @@ class FavoriteChessBoardFlatAPIViewSet(PsqMixin,
             raise ValidationError({'detail': _('Вказаного улюбленого оголошення не існує.')})
 
     def get_queryset(self):
-        return self.paginate_queryset(Favorite.objects.filter(user=self.request.user, chessboard_flat__isnull=False))
+        return Favorite.objects.filter(user=self.request.user, chessboard_flat__isnull=False)
 
     @extend_schema(
         request=inline_serializer(

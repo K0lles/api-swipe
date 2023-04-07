@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from dj_rest_auth.views import PasswordResetConfirmView
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, inline_serializer
 
 from drf_psq import PsqMixin, Rule
 
@@ -80,7 +80,17 @@ class UserAPIViewSet(PsqMixin,
         serializer = self.get_serializer(instance=self.request.user)
         return Response(data=serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=UserAdminSerializer,
+        responses={
+            '201': UserAdminSerializer
+        }
+    )
     def create(self, request, *args, **kwargs):
+        """
+        Creating user by admin, automatically activating him
+        without email confirmation
+        """
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -107,6 +117,29 @@ class UserAPIViewSet(PsqMixin,
         except Exception as e:
             return Response(data={'detail': _('Щось пішло не так.')}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @extend_schema(
+        request={},
+        responses={
+            '200': inline_serializer(
+                name='Successfully blocked user.',
+                fields={
+                    'detail': CharField(default=_('Користувач успішно заблокований.'))
+                }
+            ),
+            '400': inline_serializer(
+                name='User has already blocked.',
+                fields={
+                    'detail': CharField(default=_('Користувач вже заблокований.'))
+                }
+            ),
+            '403': inline_serializer(
+                name='Forbidden',
+                fields={
+                    'detail': CharField(default=_('Ви не можете заблокувати адміністратора.'))
+                }
+            )
+        }
+    )
     @action(detail=True, methods=['POST'])
     def block(self, request, *args, **kwargs):
         user = self.get_object()
@@ -118,6 +151,23 @@ class UserAPIViewSet(PsqMixin,
         user.save()
         return Response(data={'detail': _('Користувач успішно заблокований.')}, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request={},
+        responses={
+            '200': inline_serializer(
+                name='Successfully unblocked user.',
+                fields={
+                    'detail': CharField(default=_('Користувач успішно розблокований.'))
+                }
+            ),
+            '400': inline_serializer(
+                name='User is not blocked.',
+                fields={
+                    'detail': CharField(default=_('Користувач не є заблокованим.'))
+                }
+            ),
+        }
+    )
     @action(detail=True, methods=['POST'])
     def unblock(self, request, *args, **kwargs):
         user = self.get_object()

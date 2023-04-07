@@ -1,6 +1,7 @@
 from django.core.management.base import BaseCommand
 from faker import Faker
 from users.models import *
+from allauth.account.models import EmailAddress
 
 
 class Command(BaseCommand):
@@ -13,41 +14,62 @@ class Command(BaseCommand):
             Role.objects.create(role='builder')
 
         if not User.objects.filter(role__role='admin').exists():
-            User.objects.create_superuser(
-                email='superuser@gmail.com',
-                password='123qweasd',
-                name='Super',
-                surname='User',
+            superuser = User.objects.create_superuser(
+                            email='superuser@gmail.com',
+                            password='123qweasd',
+                            name='Super',
+                            surname='User',
+                        )
+            EmailAddress.objects.create(
+                user=superuser,
+                email=superuser.email,
+                verified=True,
+                primary=True
             )
 
         if User.objects.filter(role__role='builder').count() < 5:
             for i in range(0, 5):
-                User.objects.create_user(
+                user = User.objects.create_user(
                     name=faker.first_name(),
                     surname=faker.last_name(),
                     email=faker.email(),
                     password='123qweasd',
                     role=Role.objects.get(role='builder')
                 )
+                EmailAddress.objects.create(
+                    user=user,
+                    email=user.email,
+                    verified=True
+                )
 
         if User.objects.filter(role__role='manager').count() < 5:
             for i in range(0, 5):
-                User.objects.create_user(
+                user = User.objects.create_user(
                     name=faker.first_name(),
                     surname=faker.last_name(),
                     email=faker.email(),
                     password='123qweasd',
                     role=Role.objects.get(role='manager')
                 )
+                EmailAddress.objects.create(
+                    user=user,
+                    email=user.email,
+                    verified=True
+                )
 
         if User.objects.filter(role__role='user').count() < 5:
             for i in range(0, 5):
-                User.objects.create_user(
+                user = User.objects.create_user(
                     name=faker.first_name(),
                     surname=faker.last_name(),
                     email=faker.email(),
                     password='123qweasd',
                     role=Role.objects.get(role='user')
+                )
+                EmailAddress.objects.create(
+                    user=user,
+                    email=user.email,
+                    verified=True
                 )
 
         if Notary.objects.all().count() < 5:
