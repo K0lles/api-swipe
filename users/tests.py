@@ -87,7 +87,7 @@ def login_user(role=None):
                                format='json')
     elif role == 'builder':
         response = client.post(path='/api/v1/users/auth/login/',
-                               data={'email': 'simplbuilder@gmail.com', 'password': '123qweasd'},
+                               data={'email': 'simplebuilder@gmail.com', 'password': '123qweasd'},
                                format='json')
     else:
         response = client.post(path='/api/v1/users/auth/login/',

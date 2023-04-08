@@ -1,6 +1,6 @@
 from django.db.models import ProtectedError, Q
 from rest_framework.decorators import action
-from rest_framework.fields import URLField
+from rest_framework.fields import URLField, FileField
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.generics import ListAPIView, \
@@ -149,8 +149,6 @@ class ResidentialComplexAPIViewSet(PsqMixin,
         ],
     }
 
-    # TODO: Write 'list' method with filtering fields
-
     def get_queryset(self):
         queryset = ResidentialComplex.objects \
             .prefetch_related('gallery__photo_set') \
@@ -227,7 +225,7 @@ class ResidentialComplexAPIViewSet(PsqMixin,
 @extend_schema(tags=['Additions'])
 class AdditionAPIViewSet(PsqMixin, ModelViewSet):
     serializer_class = AdditionSerializer
-    http_method_names = ['get', 'post', 'put', 'delete']
+    http_method_names = ['get', 'post', 'patch', 'delete']
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
@@ -236,7 +234,7 @@ class AdditionAPIViewSet(PsqMixin, ModelViewSet):
             Rule([IsAdminPermission]),
             Rule([IsManagerPermission])
         ],
-        ('create', 'destroy', 'update'): [
+        ('create', 'destroy', 'partial_update'): [
             Rule([IsAdminPermission]),
             Rule([IsManagerPermission])
         ]
@@ -258,7 +256,7 @@ class AdditionAPIViewSet(PsqMixin, ModelViewSet):
         except ResidentialComplex.DoesNotExist:
             raise ValidationError({'detail': _('На вас не зареєстрованого жодного ЖК.')})
 
-    def update(self, request, *args, **kwargs):
+    def partial_update(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -319,17 +317,25 @@ class AdditionInComplexAPIViewSet(PsqMixin,
                                          many=True)
         return self.get_paginated_response(data=serializer.data)
 
+    @extend_schema(
+        request=inline_serializer(
+            name='Creation Addition in RC',
+            fields={
+                'addition': IntegerField(),
+                'turned_on': BooleanField()
+            }
+        )
+    )
     @action(methods=['POST'], detail=False, url_path='my/create')
     def residential_additions_create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data,
-                                         context={'residential_complex': self.get_my_residential_complex()},
-                                         many=True)
+                                         context={'residential_complex': self.get_my_residential_complex()})
         if serializer.is_valid():
             serializer.save()
             return Response(status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['PUT'], detail=True, url_path='my/update')
+    @action(methods=['PATCH'], detail=True, url_path='my/update')
     def residential_addition_update(self, request, *args, **kwargs):
         obj = self.get_object()
         serializer = self.get_serializer(data=request.data,
@@ -354,11 +360,11 @@ class DocumentAPIViewSet(PsqMixin,
                          DestroyAPIView,
                          GenericViewSet):
     serializer_class = DocumentSerializer
-    http_method_names = ['get', 'post', 'put', 'delete']
+    http_method_names = ['get', 'post', 'patch', 'delete']
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
-        ('create', 'update', 'destroy'):
+        ('create', 'partial_update', 'destroy'):
             [Rule([IsAdminPermission], DocumentSerializer), Rule([IsManagerPermission], DocumentSerializer)],
         ('list', 'retrieve'):
             [Rule([CustomIsAuthenticated])],
@@ -405,10 +411,10 @@ class DocumentAPIViewSet(PsqMixin,
         serializer: DocumentSerializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
-            return Response(data=serializer.data, status=status.HTTP_200_OK)
+            return Response(data=serializer.data, status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def update(self, request, *args, **kwargs):
+    def partial_update(self, request, *args, **kwargs):
         obj = self.get_object()
         serializer = self.get_serializer(data=request.data, instance=obj, partial=True)
         if serializer.is_valid():
@@ -436,16 +442,25 @@ class DocumentAPIViewSet(PsqMixin,
         serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(data=serializer.data)
 
+    @extend_schema(
+        request=inline_serializer(
+            name='Creation Addition in RC',
+            fields={
+                'name': CharField(),
+                'document': FileField()
+            }
+        )
+    )
     @action(methods=['POST'], detail=False, url_path='my/create')
     def my_documents_create(self, request, *args, **kwargs):
         residential_complex = self.get_residential_complex()
         serializer = self.get_serializer(data=request.data, context={'residential_complex': residential_complex})
         if serializer.is_valid():
             serializer.save()
-            return Response(data=serializer.data, status=status.HTTP_200_OK)
+            return Response(data=serializer.data, status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['PUT'], detail=True, url_path='my/update')
+    @action(methods=['PATCH'], detail=True, url_path='my/update')
     def my_documents_update(self, request, *args, **kwargs):
         obj: Document = self.get_object()
         serializer = self.get_serializer(data=request.data, instance=obj, partial=True)
@@ -471,11 +486,11 @@ class NewsAPIViewSet(PsqMixin,
                      DestroyAPIView,
                      GenericViewSet):
     serializer_class = NewsSerializer
-    http_method_names = ['get', 'post', 'put', 'delete']
+    http_method_names = ['get', 'post', 'patch', 'delete']
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
-        ('create', 'update', 'destroy'):
+        ('create', 'partial_update', 'destroy'):
             [Rule([IsAdminPermission]), Rule([IsManagerPermission])],
         ('my_news', 'my_news_create', 'my_news_update', 'my_news_delete'):
             [Rule([IsBuilderPermission])],
@@ -508,7 +523,7 @@ class NewsAPIViewSet(PsqMixin,
         serializer = self.get_serializer(instance=obj)
         return Response(data=serializer.data, status=status.HTTP_200_OK)
 
-    def update(self, request, *args, **kwargs):
+    def partial_update(self, request, *args, **kwargs):
         obj = self.get_object()
         serializer = self.get_serializer(data=request.data, instance=obj, partial=True)
         if serializer.is_valid():
@@ -545,7 +560,7 @@ class NewsAPIViewSet(PsqMixin,
             return Response(data=serializer.data, status=status.HTTP_200_OK)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['PUT'], detail=True, url_path='my/update')
+    @action(methods=['PATCH'], detail=True, url_path='my/update')
     def my_news_update(self, request, *args, **kwargs):
         obj: News = self.get_object()
         if obj.residential_complex.owner != request.user:
@@ -571,7 +586,7 @@ class SectionAPIViewSet(PsqMixin,
                         DestroyAPIView,
                         GenericViewSet):
     serializer_class = SectionSerializer
-    http_method_names = ['get', 'post', 'put', 'delete']
+    http_method_names = ['get', 'post', 'patch', 'delete']
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
@@ -809,7 +824,7 @@ class FlatAPIViewSet(PsqMixin,
                      DestroyAPIView,
                      GenericViewSet):
     serializer_class = FlatBuilderSerializer
-    http_method_names = ['get', 'post', 'put', 'delete']
+    http_method_names = ['get', 'post', 'patch', 'delete']
     pagination_class = CustomPageNumberPagination
 
     psq_rules = {
@@ -819,7 +834,7 @@ class FlatAPIViewSet(PsqMixin,
         'retrieve': [
             Rule([CustomIsAuthenticated])
         ],
-        ('update', 'destroy'): [
+        ('partial_update', 'destroy'): [
             Rule([IsAdminPermission]), Rule([IsManagerPermission])
         ],
         'my_flats': [
@@ -879,7 +894,7 @@ class FlatAPIViewSet(PsqMixin,
         serializer = self.get_serializer(instance=self.get_object())
         return Response(data=serializer.data, status=status.HTTP_200_OK)
 
-    def update(self, request, *args, **kwargs):
+    def partial_update(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -919,7 +934,7 @@ class FlatAPIViewSet(PsqMixin,
             return Response(data=serializer.data, status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['PUT'], detail=True, url_path='my/update')
+    @action(methods=['PATCH'], detail=True, url_path='my/update')
     def my_flats_update(self, request, *args, **kwargs):
         obj = self.get_object()
         serializer = self.get_serializer(data=request.data, instance=obj, partial=True)
