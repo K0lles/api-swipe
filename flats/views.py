@@ -1,6 +1,6 @@
 from django.db.models import ProtectedError, Q
 from rest_framework.decorators import action
-from rest_framework.fields import URLField, FileField
+from rest_framework.fields import URLField, FileField, ChoiceField
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.generics import ListAPIView, \
@@ -100,14 +100,12 @@ class CorpsAPIViewSet(PsqMixin,
         residential_complex = ResidentialComplex.objects \
             .prefetch_related('corps_set') \
             .get(owner=request.user)
-        Corps.objects.create(
+        instance = Corps.objects.create(
             name=f'Корпус {residential_complex.corps_set.all().count() + 1}',
             residential_complex=residential_complex
         )
-        serializer = self.get_serializer(
-            instance=self.paginate_queryset(Corps.objects.filter(residential_complex=residential_complex)),
-            many=True)
-        return self.get_paginated_response(data=serializer.data)
+        serializer = self.get_serializer(instance=instance)
+        return Response(data=serializer.data, status=status.HTTP_201_CREATED)
 
     @action(methods=['DELETE'], detail=True, url_path='my/delete')
     def corps_delete(self, request, *args, **kwargs):
@@ -324,7 +322,10 @@ class AdditionInComplexAPIViewSet(PsqMixin,
                 'addition': IntegerField(),
                 'turned_on': BooleanField()
             }
-        )
+        ),
+        responses={
+            '201': AdditionInComplexSerializer
+        }
     )
     @action(methods=['POST'], detail=False, url_path='my/create')
     def residential_additions_create(self, request, *args, **kwargs):
@@ -332,7 +333,7 @@ class AdditionInComplexAPIViewSet(PsqMixin,
                                          context={'residential_complex': self.get_my_residential_complex()})
         if serializer.is_valid():
             serializer.save()
-            return Response(status=status.HTTP_201_CREATED)
+            return Response(data=serializer.data, status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(methods=['PATCH'], detail=True, url_path='my/update')
@@ -557,7 +558,7 @@ class NewsAPIViewSet(PsqMixin,
         serializer = self.get_serializer(data=request.data, context={'residential_complex': residential_complex})
         if serializer.is_valid():
             serializer.save()
-            return Response(data=serializer.data, status=status.HTTP_200_OK)
+            return Response(data=serializer.data, status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(methods=['PATCH'], detail=True, url_path='my/update')
@@ -658,12 +659,11 @@ class SectionAPIViewSet(PsqMixin,
                 .get(owner=request.user)
         except ResidentialComplex.DoesNotExist:
             raise ValidationError({'detail': _('На вас не зареєстровано жодного ЖК.')})
-        Section.objects.create(
+        instance = Section.objects.create(
             name=f'Секція {residential_complex.section_set.all().count() + 1}',
             residential_complex=residential_complex
         )
-        serializer = self.get_serializer(instance=Section.objects.filter(residential_complex=residential_complex),
-                                         many=True)
+        serializer = self.get_serializer(instance=instance)
         return Response(data=serializer.data, status=status.HTTP_201_CREATED)
 
     @action(methods=['DELETE'], detail=True, url_path='my/delete')
@@ -804,12 +804,11 @@ class FloorAPIViewSet(PsqMixin,
                 .get(owner=request.user)
         except ResidentialComplex.DoesNotExist:
             raise ValidationError({'detail': _('На вас не зареєстровано жодного ЖК.')})
-        Floor.objects.create(
+        instance = Floor.objects.create(
             name=f'Поверх {residential_complex.floor_set.all().count() + 1}',
             residential_complex=residential_complex
         )
-        serializer = self.get_serializer(instance=Floor.objects.filter(residential_complex=residential_complex),
-                                         many=True)
+        serializer = self.get_serializer(instance=instance)
         return Response(data=serializer.data, status=status.HTTP_201_CREATED)
 
     @action(methods=['DELETE'], detail=True, url_path='my/delete')
@@ -865,6 +864,10 @@ class FlatAPIViewSet(PsqMixin,
         return queryset
 
     def get_not_bounded_queryset(self):
+        """
+        Returns queryset of flats, which are not bounded to any ChessBaord.
+        :return:
+        """
         queryset = Flat.objects \
             .select_related('chessboardflat', 'corps', 'section', 'floor', 'residential_complex', 'gallery')\
             .prefetch_related('gallery__photo_set') \
@@ -921,10 +924,31 @@ class FlatAPIViewSet(PsqMixin,
 
     @action(methods=['GET'], detail=False, url_path='not-bounded')
     def my_not_bounded_flats(self, request, *args, **kwargs):
+        """
+        Return set of flats, which are not bounded to any ChessBoard.
+        """
         queryset = self.paginate_queryset(self.get_not_bounded_queryset())
         serializer = self.get_serializer(instance=queryset, many=True)
         return self.get_paginated_response(serializer.data)
 
+    @extend_schema(
+        request=inline_serializer(
+            name='Flat creation',
+            fields={
+                'section': IntegerField(default=0),
+                'floor': IntegerField(default=0),
+                'corps': IntegerField(default=0),
+                'scheme': Base64ImageField(),
+                'gallery_photos': PhotoSerializer(many=True),
+                'district': CharField(),
+                'micro_district': CharField(),
+                'room_amount': IntegerField(min_value=1, max_value=6),
+                'square': IntegerField(min_value=0),
+                'price': IntegerField(min_value=0),
+                'condition': ChoiceField(choices=['draft', 'living-condition'])
+            }
+        )
+    )
     @action(methods=['POST'], detail=False, url_path='my/create')
     def my_flats_create(self, request, *args, **kwargs):
         residential_complex = self.get_residential_complex()
@@ -1090,7 +1114,10 @@ class ChessBoardAPIViewSet(PsqMixin,
                 'section': IntegerField(),
                 'corps': IntegerField()
             }
-        )
+        ),
+        responses={
+            '201': ChessBoardSerializer
+        }
     )
     @action(methods=['POST'], detail=False, url_path='my/create')
     def my_create(self, request, *args, **kwargs):
@@ -1098,7 +1125,7 @@ class ChessBoardAPIViewSet(PsqMixin,
                                          context={'residential_complex': self._get_residential_complex()})
         if serializer.is_valid():
             serializer.save()
-            return Response(data=serializer.data, status=status.HTTP_200_OK)
+            return Response(data=serializer.data, status=status.HTTP_201_CREATED)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(methods=['DELETE'], detail=True, url_path='my/delete')
@@ -1156,8 +1183,6 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
             .filter(accepted=True, called_off=False)\
             .order_by('promotion__promotion_type__efficiency', 'created_at')
         return queryset
-        # filterset = self.filterset_class(data=self.request.query_params, queryset=queryset, request=self.request)
-        # return self.paginate_queryset(filterset.qs)
 
     def get_object(self, *args, **kwargs):
         try:
@@ -1269,17 +1294,44 @@ class ChessBoardFlatAnnouncementAPIViewSet(PsqMixin,
                 'rejection_reason': CharField(required=False),
                 'called_off': BooleanField()
             }
-        )
+        ),
+        responses={
+            '200': inline_serializer(
+                name='Success',
+                fields={
+                    'detail': CharField(default=_('Оголошення успішно відхилено.'))
+                }
+            )
+        }
     )
     @action(methods=['PATCH'], detail=True, url_path='call-off')
     def call_off_announcement(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)
         if serializer.is_valid():
             serializer.save()
-            if not serializer.instance.called_off:
-                return Response(data={'detail': _('Об`яву успішно відновлено.')}, status=status.HTTP_200_OK)
-            return Response(data={'detail': _('Об`яву успішно відхилено.')}, status=status.HTTP_200_OK)
+            return Response(data={'detail': _('Оголошення успішно відхилено.')}, status=status.HTTP_200_OK)
         return Response(data=serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        request=None,
+        responses={
+            '200': inline_serializer(
+                name='Success',
+                fields = {
+                    'detail': CharField(default=_('Оголошення успішно розблоковано.'))
+                }
+            )
+        }
+    )
+    @action(methods=['PATCH'], detail=True, url_path='allow')
+    def allow_announcement(self, request, *args, **kwargs):
+        instance: ChessBoardFlat = self.get_object()
+        if instance.called_off:
+            instance.called_off = False
+            instance.rejection_reason = None
+            instance.save()
+            return Response(data={'detail': _('Оголошення успішно розблоковано.')}, status=status.HTTP_200_OK)
+        return Response(data={'detail': _('Оголошення не є заблокованим.')}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @extend_schema(tags=['Announcement Approval'])
@@ -1365,6 +1417,31 @@ class ChessBoardFlatApprovingAPIViewSet(PsqMixin,
         serializer = self.get_serializer(instance=self.get_object())
         return Response(data=serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=inline_serializer(
+            name='Approve of announcement',
+            fields={
+                "main_photo": Base64ImageField(),
+                "flat": IntegerField(default=0),
+                "gallery_photos": PhotoSerializer(many=True),
+                "accepted": BooleanField(),
+                "address": CharField(),
+                "purpose": ChoiceField(choices=['apartments']),
+                "room_amount": IntegerField(min_value=1, max_value=6),
+                "planning": ChoiceField(choices=['studio-bathroom', 'studio']),
+                "house_condition": ChoiceField(choices=['repair-required', 'good']),
+                "overall_square": IntegerField(min_value=1),
+                "kitchen_square": IntegerField(min_value=1),
+                "has_balcony": BooleanField(),
+                "heating_type": ChoiceField(choices=['gas', 'centralizer']),
+                "payment_option": ChoiceField(choices=['parent-capital']),
+                "agent_commission": IntegerField(min_value=1),
+                "communication_method": ChoiceField(choices=['phone-messages', 'phone', 'messages']),
+                "description": CharField(),
+                "price": IntegerField(min_value=1)
+            }
+        )
+    )
     @action(methods=['PATCH'], detail=True, url_path='approve')
     def approve_announcement(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, instance=self.get_object(), partial=True)

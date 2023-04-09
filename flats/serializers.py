@@ -456,7 +456,7 @@ class ChessFlatInChessBoardSerializer(ModelSerializer):
 class ChessBoardSerializer(ModelSerializer):
     section = SectionFlatSerializer()
     corps = CorpsFlatSerializer()
-    flats = ChessFlatInChessBoardSerializer(source='chessboardflat_set', many=True)
+    flats = ChessFlatInChessBoardSerializer(source='chessboardflat_set', many=True, read_only=True)
 
     class Meta:
         model = ChessBoard
@@ -684,14 +684,17 @@ class CallOffAnnouncementSerializer(ModelSerializer):
     def validate(self, attrs):
         super().validate(attrs)
 
-        if not attrs.get('called_off'):
-            attrs['rejection_reason'] = None
+        if self.instance.called_off and attrs.get('called_off'):
+            raise ValidationError({'called_off': _('Оголошення уже відхилене.')})
+
+        if not attrs.get('rejection_reason'):
+            raise ValidationError({'rejection_reason': _('Причина блокування повинна бути вказана.')})
 
         return attrs
 
     def update(self, instance, validated_data):
-        for field in validated_data:
-            setattr(instance, field, validated_data.get(field))
+        instance.rejection_reason = validated_data.get('rejection_reason')
+        instance.called_off = True
 
         instance.save()
         return instance

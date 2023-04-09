@@ -1,4 +1,6 @@
 import pytest
+from pytest_django.fixtures import _django_db_helper
+
 from allauth.account.models import EmailAddress
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -6,8 +8,8 @@ from faker import Faker
 
 from users.models import User, Role
 
-faker = Faker('uk_UA')
 
+faker = Faker('uk_UA')
 client = APIClient()
 
 
@@ -96,89 +98,96 @@ def login_user(role=None):
     return response.data
 
 
-@pytest.mark.django_db
-def test_login(fill_db):
-    response = client.post('/api/v1/users/auth/login/',
-                           {'email': 'oleksijkolotilo63@gmail.com', 'password': '123qweasd'}, format='json')
-    assert response.status_code == status.HTTP_200_OK
+_django_db_function_scope_helper = pytest.fixture(_django_db_helper.__wrapped__, scope='function')
+_django_db_class_scope_helper = pytest.fixture(_django_db_helper.__wrapped__, scope='class')
 
 
-@pytest.mark.django_db
-def test_logout(fill_db):
-    client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user().get("access_token")}')
-    response = client.post('/api/v1/users/auth/logout/')
-    client.credentials()
-    assert response.status_code == status.HTTP_200_OK
+@pytest.fixture()
+def _django_db_helper(request) -> None:
+    marker = request.node.get_closest_marker('django_db_class_scope')
+    if not marker:
+        request.getfixturevalue('_django_db_function_scope_helper')
 
 
-@pytest.mark.django_db
-def test_change_password(fill_db):
-    client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user().get("access_token")}')
-    response = client.post('/api/v1/users/auth/password/change/',
-                           data={
-                               'new_password1': 'helloworld',
-                               'new_password2': 'helloworld'
-                           })
-    client.credentials()
-    assert response.status_code == status.HTTP_200_OK
+@pytest.fixture(autouse=True)
+def django_db_class_scope_marker(request) -> None:
+    marker = request.node.get_closest_marker('django_db_class_scope')
+    if marker:
+        request.getfixturevalue('_django_db_class_scope_helper')
 
 
-@pytest.mark.django_db
-def test_get_all_managers(fill_db):
-    client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user().get("access_token")}')
-    response = client.get('/api/v1/users/users/managers/')
-    client.credentials()
-    assert response.status_code == status.HTTP_200_OK
+@pytest.mark.django_db_class_scope
+class TestingUsers:
 
+    def testing_initializing_filling_db(self, fill_db):
+        """
+        Method only for filling database with starting data, including users, roles etc.
+        :param fill_db:
+        :return: None
+        """
+        pass
 
-@pytest.mark.django_db
-def test_blocking_and_unblocking_user(fill_db):
-    user_to_block = User.objects.filter(role__role='user').first()
+    def test_login(self):
+        response = client.post('/api/v1/users/auth/login/',
+                               {'email': 'oleksijkolotilo63@gmail.com', 'password': '123qweasd'}, format='json')
+        assert response.status_code == status.HTTP_200_OK
 
-    client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user("admin").get("access_token")}')
-    response = client.post(f'/api/v1/users/users/{user_to_block.id}/block/')
-    assert response.status_code == status.HTTP_200_OK
+    def test_logout(self):
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user().get("access_token")}')
+        response = client.post('/api/v1/users/auth/logout/')
+        assert response.status_code == status.HTTP_200_OK
 
-    response = client.post(f'/api/v1/users/users/{user_to_block.id}/unblock/')
-    client.credentials()
-    assert response.status_code == status.HTTP_200_OK
+    def test_change_password(self):
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user().get("access_token")}')
+        response = client.post('/api/v1/users/auth/password/change/',
+                               data={
+                                   'new_password1': '123qweasd',
+                                   'new_password2': '123qweasd'
+                               })
+        assert response.status_code == status.HTTP_200_OK
 
+    def test_get_all_managers(self):
+        response = client.get('/api/v1/users/users/managers/')
+        assert response.status_code == status.HTTP_200_OK
 
-@pytest.mark.django_db
-def test_creation_and_deletion_user(fill_db):
-    client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user("admin").get("access_token")}')
-    response = client.post(path='/api/v1/users/users/',
-                           data={
-                               'password': '123qweasd',
-                               'email': 'test_user@gmail.com',
-                               'role': 'user',
-                               'name': 'Customed User',
-                               'surname': 'Surname'
-                           },
-                           format='json')
-    user_id = response.data.get('id')
-    assert response.status_code == status.HTTP_201_CREATED
+    def test_blocking_and_unblocking_user(self):
+        user_to_block = User.objects.filter(role__role='user').exclude(email='oleksijkolotilo63@gmail.com').first()
 
-    response = client.delete(path=f'/api/v1/users/users/{user_id}/')
-    client.credentials()
-    assert response.status_code == status.HTTP_204_NO_CONTENT
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user("admin").get("access_token")}')
+        response = client.post(f'/api/v1/users/users/{user_to_block.id}/block/')
+        assert response.status_code == status.HTTP_200_OK
 
+        response = client.post(f'/api/v1/users/users/{user_to_block.id}/unblock/')
+        assert response.status_code == status.HTTP_200_OK
 
-@pytest.mark.django_db
-def test_updating_self_account(fill_db):
-    client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user("user").get("access_token")}')
-    response = client.patch(path='/api/v1/users/users/me/update/',
-                            data={
-                                'name': faker.first_name(),
-                                'surname': faker.last_name()
-                            })
-    client.credentials()
-    assert response.status_code == status.HTTP_200_OK
+    def test_updating_self_account(self):
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user().get("access_token")}')
+        response = client.patch(path='/api/v1/users/users/me/update/',
+                                data={
+                                    'name': faker.first_name(),
+                                    'surname': faker.last_name(),
+                                    'turn_calls_to_agent': True
+                                })
+        assert response.status_code == status.HTTP_200_OK
 
+    def test_creation_and_deletion_user(self):
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user("admin").get("access_token")}')
+        response = client.post(path='/api/v1/users/users/',
+                               data={
+                                   'password': '123qweasd',
+                                   'email': 'test_user@gmail.com',
+                                   'role': 'user',
+                                   'name': 'Customed User',
+                                   'surname': 'Surname'
+                               },
+                               format='json')
+        user_id = response.data.get('id')
+        assert response.status_code == status.HTTP_201_CREATED
 
-@pytest.mark.django_db
-def test_deletion_self_account(fill_db):
-    client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user("user").get("access_token")}')
-    response = client.delete(path='/api/v1/users/users/me/delete/')
-    client.credentials()
-    assert response.status_code == status.HTTP_200_OK
+        response = client.delete(path=f'/api/v1/users/users/{user_id}/')
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_deletion_self_account(self):
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {login_user().get("access_token")}')
+        response = client.delete(path='/api/v1/users/users/me/delete/')
+        assert response.status_code == status.HTTP_200_OK
