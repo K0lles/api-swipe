@@ -28,7 +28,6 @@ services:
     depends_on:
       - web
     volumes:
-      - static_volume:/home/app/web/static
       - media_volume:/home/app/web/media
 
   redis:
@@ -59,5 +58,4 @@ services:
 
 volumes:
   postgres_data:
-  static_volume:
   media_volume:
