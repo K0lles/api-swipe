@@ -1,0 +1,63 @@
+services:
+
+  db:
+    image: postgres:14.5-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - ./.env
+    restart: "on-failure"
+
+  web:
+    build: .
+    command: make startapp
+    volumes:
+      - media_volume:/home/app/web/media
+    ports:
+      - 8000:8000
+    env_file:
+      - ./.env
+    restart: "on-failure"
+    depends_on:
+      - db
+
+  nginx:
+    build: ./nginx
+    ports:
+      - 81:80
+    depends_on:
+      - web
+    volumes:
+      - static_volume:/home/app/web/static
+      - media_volume:/home/app/web/media
+
+  redis:
+    image: redis:alpine
+    restart: always
+    ports:
+      - '6379:6379'
+
+  celery:
+    restart: always
+    build:
+      context: .
+    command: celery -A api_swipe worker --loglevel=info
+    depends_on:
+      - db
+      - redis
+      - web
+
+  celery-beat:
+    restart: always
+    build:
+      context: .
+    command: celery -A api_swipe worker --beat --scheduler django --loglevel=info
+    env_file:
+      - ./.env
+    depends_on:
+      - celery
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:

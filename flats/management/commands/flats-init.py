@@ -13,7 +13,7 @@ class Command(BaseCommand):
         if users.exists() and not ResidentialComplex.objects.all().exists():
             for el in users:
                 user = choice(users)
-                users.exclude(user)
+                users = users.all().exclude(email=user.email)
                 rc = ResidentialComplex.objects.create(
                     owner=user,
                     name=faker.company(),
@@ -73,9 +73,9 @@ class Command(BaseCommand):
                     condition='living-condition'
                 )
 
-                chessboard = ChessBoard.objects.get_or_create(residential_complex=rc,
-                                                              corps=flat.corps,
-                                                              section=flat.section)
+                chessboard, created = ChessBoard.objects.get_or_create(residential_complex=rc,
+                                                                       corps=flat.corps,
+                                                                       section=flat.section)
 
                 ChessBoardFlat.objects.create(
                     residential_complex=rc,
