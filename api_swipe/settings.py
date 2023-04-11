@@ -19,7 +19,7 @@ SECRET_KEY = env('SECRET_KEY')
 
 DEBUG = False
 
-ALLOWED_HOSTS = ['testserver', '127.0.0.1']
+ALLOWED_HOSTS = ['testserver', '127.0.0.1', '164.90.181.184']
 
 INTERNAL_IPS = [
     "127.0.0.1"
